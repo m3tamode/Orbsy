@@ -118,7 +118,7 @@ void main() {
   vec3 colr = orbsyFluoro(E, uC_deep, uC_base, uC_hot) * step(0.004, E);
   // bloom: a soft vertical flare round each head, spilling over the gaps
   float flare = (A.z + 0.6 * B.z) * pole * shade;
-  colr += uC_base * flare * uP_bloom * 0.3 * vol + vec3(0.8, 1.0, 0.8) * heads * uP_bloom * 0.12 * pole * shade;
+  colr += uC_base * flare * uP_bloom * 0.3 * vol + vec3(0.82, 1.0, 0.9) * heads * uP_bloom * 0.12 * pole * shade;
   colr *= mask;
 
   // Drips past the rim: screen-space columns, only where the edge sorts are hot.
@@ -172,9 +172,9 @@ export const orbsy12Orb: OrbVariant = {
     { key: "edgeFlow", label: "Edge flow", min: 0, max: 3, step: 0.01, default: 0.35, integrate: true }
   ],
   colors: [
-    { key: "deep", label: "Deep", default: "#010d04" },
-    { key: "base", label: "Fluoro", default: "#39ff14" },
-    { key: "hot", label: "Hot", default: "#d6ff5c" }
+    { key: "deep", label: "Deep", default: "#010f08" },
+    { key: "base", label: "Fluoro", default: "#1bd26a" },
+    { key: "hot", label: "Hot", default: "#8ff2b8" }
   ],
   statePresets: {
     // slow drips, few long sorts, calm re-sorting
@@ -197,9 +197,9 @@ export const orbsy12Orb: OrbVariant = {
     }
   },
   stateColors: {
-    idle: { deep: "#010d04", base: "#39ff14", hot: "#d6ff5c" },
-    thinking: { deep: "#010f07", base: "#2bff6a", hot: "#c4ffd0" },
-    speaking: { deep: "#031002", base: "#5cff1f", hot: "#eaff80" }
+    idle: { deep: "#010f08", base: "#1bd26a", hot: "#8ff2b8" },
+    thinking: { deep: "#010f09", base: "#17cf8c", hot: "#a4f5dc" },
+    speaking: { deep: "#02110b", base: "#2ee87c", hot: "#b6ffd2" }
   }
 };
 

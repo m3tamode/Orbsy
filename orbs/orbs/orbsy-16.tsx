@@ -167,9 +167,9 @@ export const orbsy16Orb: OrbVariant = {
     { key: "edgeFlow", label: "Edge flow", min: 0, max: 3, step: 0.01, default: 0.3, integrate: true }
   ],
   colors: [
-    { key: "deep", label: "Deep", default: "#010d04" },
-    { key: "base", label: "Fluoro", default: "#39ff14" },
-    { key: "hot", label: "Hot", default: "#d6ff5c" }
+    { key: "deep", label: "Deep", default: "#010f08" },
+    { key: "base", label: "Fluoro", default: "#1bd26a" },
+    { key: "hot", label: "Hot", default: "#8ff2b8" }
   ],
   statePresets: {
     // slow drift down a plain corridor, rare pulses, few lit cells
@@ -192,9 +192,9 @@ export const orbsy16Orb: OrbVariant = {
     }
   },
   stateColors: {
-    idle: { deep: "#010d04", base: "#39ff14", hot: "#d6ff5c" },
-    thinking: { deep: "#01100a", base: "#2bff6a", hot: "#c4ffd0" },
-    speaking: { deep: "#030f02", base: "#5cff1f", hot: "#eaff80" }
+    idle: { deep: "#010f08", base: "#1bd26a", hot: "#8ff2b8" },
+    thinking: { deep: "#01100a", base: "#17cf8c", hot: "#a4f5dc" },
+    speaking: { deep: "#02110b", base: "#2ee87c", hot: "#b6ffd2" }
   }
 };
 

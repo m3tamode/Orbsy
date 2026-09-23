@@ -199,11 +199,11 @@ export const orbsy21Orb: OrbVariant = {
     { key: "edgeFlow", label: "Edge flow", min: 0, max: 3, step: 0.01, default: 0.3, integrate: true }
   ],
   colors: [
-    { key: "deep", label: "Deep", default: "#010d04" },
-    { key: "base", label: "Fluoro", default: "#39ff14" },
-    { key: "hot", label: "Hot", default: "#d6ff5c" },
-    { key: "mint", label: "Mint accent", default: "#6affb0" },
-    { key: "wall", label: "Wall", default: "#07140b" }
+    { key: "deep", label: "Deep", default: "#010f08" },
+    { key: "base", label: "Fluoro", default: "#1bd26a" },
+    { key: "hot", label: "Hot", default: "#8ff2b8" },
+    { key: "mint", label: "Mint accent", default: "#5ff0c0" },
+    { key: "wall", label: "Wall", default: "#06140e" }
   ],
   /*
     Coverage is staged DOWN in the active states, as in SHDR-29: the
@@ -230,9 +230,9 @@ export const orbsy21Orb: OrbVariant = {
     }
   },
   stateColors: {
-    idle: { deep: "#010d04", base: "#39ff14", hot: "#d6ff5c", mint: "#6affb0" },
-    thinking: { deep: "#010f08", base: "#2bff6a", hot: "#c4ffd0", mint: "#8affd8" },
-    speaking: { deep: "#020f02", base: "#5cff1f", hot: "#eaff80", mint: "#a0ff9a" }
+    idle: { deep: "#010f08", base: "#1bd26a", hot: "#8ff2b8", mint: "#5ff0c0" },
+    thinking: { deep: "#010f08", base: "#17cf8c", hot: "#a4f5dc", mint: "#7ff5d8" },
+    speaking: { deep: "#01100a", base: "#2ee87c", hot: "#b6ffd2", mint: "#9df5c4" }
   }
 };
 
