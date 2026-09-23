@@ -196,8 +196,8 @@ export const orbsy11Orb: OrbVariant = {
     { key: "gap", label: "Shell spacing", min: 0.1, max: 0.24, step: 0.005, default: 0.2 },
     { key: "scale", label: "Field scale", min: 0.5, max: 6, step: 0.05, default: 2.0 },
     { key: "density", label: "Glyph density", min: -0.4, max: 0.4, step: 0.01, default: 0.0 },
-    { key: "outer", label: "Outer shell gain", min: 0.5, max: 3, step: 0.01, default: 1.7 },
-    { key: "sparkle", label: "Hot glyphs", min: 0, max: 0.5, step: 0.01, default: 0.12 },
+    { key: "outer", label: "Outer shell gain", min: 0.5, max: 3, step: 0.01, default: 1.15 },
+    { key: "sparkle", label: "Hot glyphs", min: 0, max: 0.5, step: 0.01, default: 0.08 },
     { key: "falloff", label: "Inner dimming", min: 0.2, max: 1, step: 0.01, default: 0.6 },
     { key: "back", label: "Back shells", min: 0, max: 1, step: 0.01, default: 0.4 },
     { key: "occlude", label: "Glyph occlusion", min: 0, max: 0.9, step: 0.01, default: 0.35 },
@@ -218,31 +218,31 @@ export const orbsy11Orb: OrbVariant = {
     { key: "edgeFlow", label: "Edge flow", min: 0, max: 3, step: 0.01, default: 0.35, integrate: true }
   ],
   colors: [
-    { key: "deep", label: "Deep", default: "#010d04" },
-    { key: "base", label: "Fluoro", default: "#39ff14" },
-    { key: "hot", label: "Hot", default: "#d6ff5c" }
+    { key: "deep", label: "Deep", default: "#010f08" },
+    { key: "base", label: "Fluoro", default: "#1bd26a" },
+    { key: "hot", label: "Hot", default: "#8ff2b8" }
   ],
   statePresets: {
     idle: {
-      stream: 0.25, spin: 0.12, band: 0.3, cells: 9, density: 0.05, outer: 1.7, sparkle: 0.1, falloff: 0.5, back: 0.35,
-      gain: 1.25, burn: 1.3, bandWidth: 0.16, sweeps: 0.0, bloom: 0.8, roll: 0.2, scan: 0.3,
+      stream: 0.25, spin: 0.12, band: 0.3, cells: 9, density: 0.05, outer: 1.15, sparkle: 0.08, falloff: 0.5, back: 0.35,
+      gain: 0.9, burn: 1.3, bandWidth: 0.16, sweeps: 0.0, bloom: 0.8, roll: 0.2, scan: 0.3,
       exposure: 1.0, organic: 0.03, bleed: 0.8, reach: 0.1, edgeFlow: 0.25
     },
     thinking: {
-      stream: 1.1, spin: 0.55, band: 1.4, cells: 10, density: 0.04, outer: 1.5, sparkle: 0.14, falloff: 0.55, back: 0.4,
-      gain: 1.15, burn: 1.4, bandWidth: 0.1, sweeps: 1.0, bloom: 0.9, roll: 0.7, scan: 0.45,
+      stream: 1.1, spin: 0.55, band: 1.4, cells: 10, density: 0.04, outer: 1.05, sparkle: 0.1, falloff: 0.55, back: 0.4,
+      gain: 0.85, burn: 1.4, bandWidth: 0.1, sweeps: 1.0, bloom: 0.9, roll: 0.7, scan: 0.45,
       exposure: 1.1, organic: 0.045, bleed: 1.0, reach: 0.12, edgeFlow: 0.8
     },
     speaking: {
-      stream: 0.8, spin: 0.25, band: 0.9, cells: 8, density: 0.08, outer: 1.6, sparkle: 0.2, falloff: 0.6, back: 0.45,
-      gain: 1.3, burn: 1.7, bandWidth: 0.18, sweeps: 0.5, bloom: 1.1, roll: 0.35, scan: 0.35,
+      stream: 0.8, spin: 0.25, band: 0.9, cells: 8, density: 0.08, outer: 1.2, sparkle: 0.14, falloff: 0.6, back: 0.45,
+      gain: 1.0, burn: 1.6, bandWidth: 0.18, sweeps: 0.5, bloom: 1.1, roll: 0.35, scan: 0.35,
       exposure: 1.3, organic: 0.06, bleed: 1.6, reach: 0.16, edgeFlow: 1.1
     }
   },
   stateColors: {
-    idle: { deep: "#010d04", base: "#39ff14", hot: "#d6ff5c" },
-    thinking: { deep: "#010f07", base: "#2bff6a", hot: "#c4ffd0" },
-    speaking: { deep: "#031002", base: "#5cff1f", hot: "#eaff80" }
+    idle: { deep: "#010f08", base: "#1bd26a", hot: "#8ff2b8" },
+    thinking: { deep: "#010f09", base: "#17cf8c", hot: "#a4f5dc" },
+    speaking: { deep: "#02110b", base: "#2ee87c", hot: "#b6ffd2" }
   }
 };
 
