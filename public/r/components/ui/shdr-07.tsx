@@ -194,6 +194,18 @@ void main() {
   // the ball winds tighter while the agent speaks
   torsionTwist = uP_twist * (1.0 + 0.4 * uOutput);
 
+  /*
+    Organic rim. The silhouette used to be a hard cut: the exact
+    ray-to-centre distance against uP_envRadius. That sphere projects to a
+    screen disc of radius focal * envRadius / sqrt(camDist^2 - envRadius^2),
+    so the cut is now taken in screen space against that radius, where the
+    shared helpers can make it wander and feather. The march already lights
+    the envelope 12% past the radius, so no rim lookup is needed: the lumps
+    and the tendrils outside show the volume's own outer shells.
+  */
+  vec2 uv = orbUV();
+  float Rs = uP_focal * uP_envRadius / sqrt(max(uP_camDist * uP_camDist - uP_envRadius * uP_envRadius, 1e-3));
+
   vec3 acc = vec3(0.0);
 #if AA > 1
   for (int mx = 0; mx < AA; mx++) {
@@ -222,18 +234,35 @@ void main() {
   float peak = max(col.r, max(col.g, col.b));
   float a = clamp(peak * uP_alphaGain, 0.0, 1.0);
 
-  // Analytic silhouette — identical construction to shdr-01: exact
-  // ray-to-centre distance against the radius, colour AND alpha.
-  vec3 mrd = normalize(vec3(orbUV(), -uP_focal));
-  float closest = length(cross(vec3(0.0, 0.0, uP_camDist), mrd));
+  // the wandering silhouette; the old edge-sharpness band still pulls the
+  // feather inward the way it did on the analytic cut
   float band = mix(0.35, 0.012, clamp(uP_edge, 0.0, 1.0));
-  float mask = 1.0 - smoothstep(uP_envRadius * (1.0 - band), uP_envRadius * 1.005, closest);
-  col *= mask;
-  a *= mask;
+  float mask = orbOrganicMask(uv, Rs * (1.0 - 0.5 * band), uP_organic, uP_edgeSoft + 0.5 * band, uP_edgeFlow);
+
+  /*
+    Energy creeping out past the rim in tendrils, swelling with the voice.
+    The march's outer shells die 12% past the radius, so the tendrils
+    beyond them carry a smooth limb colour built from the same colour code
+    (red 3, green by depth, blue by step) instead of a rim lookup, which
+    would smear the cell flicker into radial streaks. Brighter as the
+    exposure knee drops, the way the ball itself brightens.
+  */
+  vec3 limb = vec3(3.0, uP_envRadius * uP_hueDepth, 20.0 * uP_hueStep);
+  limb /= max(limb.r, max(limb.g, limb.b));
+  limb = mix(vec3(dot(limb, vec3(0.299, 0.587, 0.114))), limb, uP_saturation) * uC_tint;
+  limb *= 0.22 * clamp(sqrt(60.0 / max(torsionExposure, 1.0)), 0.6, 1.25);
+  float bleed = orbBleed(uv, Rs, uP_reach, uP_edgeFlow) * uP_bleed * (0.7 + 0.6 * uOutput);
+  vec3 glow = max(col, limb) * bleed * (1.0 - mask);
+  // the same light rising through the dim limb just inside the rim, so the
+  // halo grows out of the ball instead of floating beside it as a ring
+  glow += limb * bleed * 0.5 * smoothstep(Rs * 0.82, Rs, length(uv)) * mask;
+  float glowA = clamp(max(glow.r, max(glow.g, glow.b)) * uP_alphaGain, 0.0, 1.0);
+
+  col = col * mask + glow;
+  a = max(a * mask, glowA);
 
   // safety taper at the frame boundary — colour as well as alpha
-  float r2d = length(orbUV());
-  float fade = 1.0 - smoothstep(uP_edgeFade, 1.0, r2d);
+  float fade = 1.0 - smoothstep(uP_edgeFade, 1.0, length(uv));
   col *= fade;
   a *= fade;
 
@@ -255,7 +284,7 @@ export const shdr07Orb: OrbVariant = {
     { key: "spin", label: "Roll", min: 0, max: 3, step: 0.015, default: 0.1, integrate: true },
     { key: "tilt", label: "Axis lean", min: -1.5, max: 1.5, step: 0.015, default: 0.3 },
     { key: "camDist", label: "Camera distance", min: 1, max: 50, step: 0.3, default: 7 },
-    { key: "focal", label: "Lens", min: 0.15, max: 15, step: 0.1, default: 2.25 },
+    { key: "focal", label: "Lens", min: 0.15, max: 15, step: 0.1, default: 1.95 },
     { key: "turb", label: "Cell turbulence", min: 0, max: 5, step: 0.03, default: 1 },
     { key: "column", label: "Column release", min: 0, max: 1, step: 0.01, default: 0 },
     { key: "stepScale", label: "Step scale", min: 0.005, max: 1.5, step: 0.005, default: 0.1 },
@@ -271,7 +300,12 @@ export const shdr07Orb: OrbVariant = {
     { key: "saturation", label: "Saturation", min: 0, max: 4, step: 0.02, default: 1.15 },
     { key: "alphaGain", label: "Alpha gain", min: 0.05, max: 15, step: 0.1, default: 2 },
     { key: "edge", label: "Edge sharpness", min: 0, max: 1, step: 0.01, default: 1 },
-    { key: "edgeFade", label: "Halo falloff", min: 0.1, max: 3, step: 0.015, default: 0.98 }
+    { key: "edgeFade", label: "Halo falloff", min: 0.1, max: 3, step: 0.015, default: 0.98 },
+    { key: "organic", label: "Rim wander", min: 0, max: 0.15, step: 0.005, default: 0.04 },
+    { key: "edgeSoft", label: "Rim feather", min: 0, max: 0.2, step: 0.005, default: 0.035 },
+    { key: "bleed", label: "Energy bleed", min: 0, max: 3, step: 0.01, default: 0.9 },
+    { key: "reach", label: "Bleed reach", min: 0.02, max: 0.5, step: 0.005, default: 0.1 },
+    { key: "edgeFlow", label: "Edge flow", min: 0, max: 3, step: 0.01, default: 0.35, integrate: true }
   ],
   colors: [{ key: "tint", label: "Tint", default: "#ffffff" }],
   /*
@@ -290,7 +324,11 @@ export const shdr07Orb: OrbVariant = {
       column: 0,
       exposure: 60,
       scatter: 0.01,
-      alphaGain: 2
+      alphaGain: 2,
+      organic: 0.03,
+      bleed: 0.7,
+      reach: 0.08,
+      edgeFlow: 0.3
     },
     /*
       searching: the ball WINDS UP — three and a half times the twist, so
@@ -306,7 +344,11 @@ export const shdr07Orb: OrbVariant = {
       column: 0,
       exposure: 88,
       scatter: 0.011,
-      alphaGain: 2
+      alphaGain: 2,
+      organic: 0.05,
+      bleed: 0.9,
+      reach: 0.1,
+      edgeFlow: 0.8
     },
     /*
       answering: the winding UNWINDS to a third of idle and the wave races
@@ -322,7 +364,11 @@ export const shdr07Orb: OrbVariant = {
       column: 0.45,
       exposure: 26,
       scatter: 0.006,
-      alphaGain: 2.7
+      alphaGain: 2.7,
+      organic: 0.06,
+      bleed: 1.3,
+      reach: 0.13,
+      edgeFlow: 1.1
     }
   },
   // the march colour-codes itself, so the tint only shifts temperature:

@@ -203,6 +203,81 @@ vec3 tanh3(vec3 x) {
   return (e - 1.0) / (e + 1.0);
 }
 
+// ---- Organic silhouette ------------------------------------------------------
+// For orbs that trade a hard circular cut for a living edge: the rim wanders
+// with angle and time, and the orb's own light bleeds past it in tendrils that
+// stream outward. The angle only ever enters as the unit direction, so nothing
+// seams where atan() would wrap. Radii and widths are fractions of R so one set
+// of values reads the same on every orb.
+float orbEdgeHash(vec3 p) {
+  p = fract(p * vec3(0.1031, 0.1030, 0.0973));
+  p += dot(p, p.yxz + 33.33);
+  return fract((p.x + p.y) * p.z);
+}
+float orbEdgeNoise(vec3 p) {
+  vec3 i = floor(p);
+  vec3 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(
+    mix(mix(orbEdgeHash(i), orbEdgeHash(i + vec3(1.0, 0.0, 0.0)), f.x),
+        mix(orbEdgeHash(i + vec3(0.0, 1.0, 0.0)), orbEdgeHash(i + vec3(1.0, 1.0, 0.0)), f.x), f.y),
+    mix(mix(orbEdgeHash(i + vec3(0.0, 0.0, 1.0)), orbEdgeHash(i + vec3(1.0, 0.0, 1.0)), f.x),
+        mix(orbEdgeHash(i + vec3(0.0, 1.0, 1.0)), orbEdgeHash(i + vec3(1.0, 1.0, 1.0)), f.x), f.y),
+    f.z
+  );
+}
+float orbEdgeFbm(vec3 p) {
+  float v = 0.0;
+  float a = 0.5;
+  for (int i = 0; i < 3; i++) {
+    v += a * orbEdgeNoise(p);
+    p = p * 2.03 + vec3(3.1, 7.7, 1.9);
+    a *= 0.5;
+  }
+  return v / 0.875;
+}
+
+// Coverage of an orb of radius R whose rim wanders by up to about wobble*R
+// and feathers over soft*R. t is a clock (an integrate:true param).
+float orbOrganicMask(vec2 uv, float R, float wobble, float soft, float t) {
+  float r = length(uv);
+  vec2 dir = uv / max(r, 1e-5);
+  float lump = orbEdgeFbm(vec3(dir * 1.6, t)) - 0.5;
+  float Re = R * (1.0 + 2.0 * wobble * lump);
+  float s = max(R * soft, 2.0 / min(uRes.x, uRes.y));
+  return 1.0 - smoothstep(Re - s, Re + s, r);
+}
+
+// Light outside the rim: an exponential falloff whose length the tendril field
+// sets, so some wisps reach several times further than others and drift
+// outward as t advances. Modulating the reach rather than the brightness is
+// what keeps a thin band from reading as radial rays, and the direction is
+// swirled with distance so the wisps curl. Faded out before the canvas edge so
+// the glow never meets the square frame.
+float orbBleed(vec2 uv, float R, float reach, float t) {
+  float r = length(uv);
+  vec2 dir = uv / max(r, 1e-5);
+  float outside = max(r - R, 0.0) / R;
+  float swirl = (orbEdgeNoise(vec3(dir * 2.0, t * 0.5)) - 0.5) * outside * 6.0;
+  float c = cos(swirl);
+  float s = sin(swirl);
+  vec2 curled = vec2(dir.x * c - dir.y * s, dir.x * s + dir.y * c);
+  float tendril = smoothstep(0.3, 0.75, orbEdgeFbm(vec3(curled * 4.0, outside * 9.0 - t * 1.3)));
+  float len = max(reach, 1e-3) * mix(0.35, 2.2, tendril);
+  return exp(-outside / len) * (1.0 - smoothstep(0.84, 1.0, r));
+}
+
+// The point on (just inside) the rim below uv: where a bleeding pixel takes its
+// colour from. Inside the rim it returns uv unchanged.
+vec2 orbRimUV(vec2 uv, float R) {
+  float r = length(uv);
+  float rim = R * 0.96;
+  return r > rim ? uv * (rim / r) : uv;
+}
+
+// orbUV() inverted, for shaders whose render function takes a fragCoord.
+vec2 orbFragCoord(vec2 uv) { return (uv * min(uRes.x, uRes.y) + uRes) * 0.5; }
+
 `;
 
 function paramUniformDecls(variant: OrbVariant): string {

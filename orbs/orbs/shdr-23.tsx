@@ -49,11 +49,15 @@ void main() {
   vec2 g = fract(gl_FragCoord.xy / cellPx); // 0..1 inside the cell
 
   vec2 suv = (2.0 * cellCentre - uRes) / min(uRes.x, uRes.y);
-  vec2 uv = suv / uP_radius;
-  float r2 = dot(uv, uv);
+  float R = uP_radius;
 
-  // blocky silhouette, cut on the cell grid like the rest of the matrix
-  float mask = 1.0 - step(1.0, r2);
+  // Organic silhouette, still cut on the cell grid like the rest of the
+  // matrix: the rim wanders and feathers per cell instead of a hard circle,
+  // and cells past the true radius read the ball at the rim point below
+  // them, so the lumps carry the glyphs that touch the edge.
+  float mask = orbOrganicMask(suv, R, uP_organic, uP_edgeSoft, uP_edgeFlow);
+  vec2 uv = orbRimUV(suv, R) / R;
+  float r2 = dot(uv, uv);
 
   float z = sqrt(max(1.0 - r2, 0.0));
   vec3 n = vec3(uv, z);
@@ -106,7 +110,7 @@ void main() {
   */
   vec2 superCentre = (floor(cellIdx / 2.0) * 2.0 + 1.0) * cellPx;
   vec2 sSuv = (2.0 * superCentre - uRes) / min(uRes.x, uRes.y);
-  vec2 sUv2 = sSuv / uP_radius;
+  vec2 sUv2 = orbRimUV(sSuv, R) / R;
   float sz = sqrt(max(1.0 - dot(sUv2, sUv2), 0.0));
   vec3 ssp = vec3(sUv2.x * cr - sz * sr, sUv2.y, sUv2.x * sr + sz * cr);
   float superField = fbm(ssp.xy / (abs(ssp.z) + 1.2) * uP_scale * 3.0 + flow);
@@ -124,10 +128,29 @@ void main() {
 
   col = pow(max(col, 0.0), vec3(uP_contrast));
 
+  /*
+    Energy leaking off the screen: past the rim the bleed is quantized into
+    glyphs of its own, sparse characters in the glow colour that thin out
+    with distance. Their density takes a screen-space field rather than the
+    rim, so the leak breaks into drifting clusters instead of radial rays,
+    over a faint per-pixel phosphor haze.
+  */
+  float bleedAmt = orbBleed(suv, R, uP_reach, uP_edgeFlow) * uP_bleed * (0.7 + 0.6 * uOutput);
+  float leakField = fbm(suv * 4.0 + flow + vec2(0.0, -uP_edgeFlow * 0.5));
+  float leakDens = clamp(bleedAmt * (0.15 + 1.4 * smoothstep(0.35, 0.75, leakField)), 0.0, 1.0) * (1.0 - mask);
+  float leakGlyph = bar * stripe * step(rowI + 0.5, leakDens * 4.0);
+  vec3 leak = mix(uC_deep, uC_glow, 0.4 + 0.6 * leakDens) * leakGlyph * leakDens;
+  vec2 fuv = orbUV();
+  float haze = orbBleed(fuv, R, uP_reach, uP_edgeFlow) * uP_bleed * (0.7 + 0.6 * uOutput);
+  leak += uC_glow * haze * 0.12 * (1.0 - orbOrganicMask(fuv, R, uP_organic, uP_edgeSoft, uP_edgeFlow));
+  leak = pow(max(leak, 0.0), vec3(uP_contrast));
+  float leakA = clamp(max(leak.r, max(leak.g, leak.b)), 0.0, 1.0);
+
   // Surface-lit orb bounded by a mask: alpha IS coverage, so premultiply —
-  // the opposite convention from the emissive orbs (see shdr-31).
+  // the opposite convention from the emissive orbs (see shdr-31). The leak
+  // is emitted light added on top.
   float a = mask;
-  gl_FragColor = vec4(col * a, a);
+  gl_FragColor = vec4(col * a + leak, max(a, leakA));
 }
 `;
 
@@ -142,7 +165,7 @@ export const shdr23Orb: OrbVariant = {
     { key: "speed", label: "Pulse rate", min: 0.015, max: 10, step: 0.05, default: 0.5, integrate: true },
     { key: "pulse", label: "Pulse depth", min: 0, max: 2, step: 0.01, default: 0 },
     { key: "spin", label: "Roll", min: 0, max: 5, step: 0.03, default: 0.12, integrate: true },
-    { key: "radius", label: "Radius", min: 0.15, max: 3, step: 0.015, default: 0.9 },
+    { key: "radius", label: "Radius", min: 0.15, max: 3, step: 0.015, default: 0.8 },
     { key: "cells", label: "Glyph grid", min: 16, max: 120, step: 2, default: 40 },
     { key: "scale", label: "Field scale", min: 0.3, max: 10, step: 0.1, default: 1.6 },
     { key: "density", label: "Glyph density", min: 0, max: 2, step: 0.01, default: 0.48 },
@@ -150,7 +173,12 @@ export const shdr23Orb: OrbVariant = {
     { key: "light", label: "Key light", min: 0, max: 3, step: 0.015, default: 0.6 },
     { key: "rim", label: "Rim glow", min: 0, max: 3, step: 0.015, default: 0.45 },
     { key: "gain", label: "Phosphor gain", min: 0.05, max: 5, step: 0.05, default: 1 },
-    { key: "contrast", label: "Contrast", min: 0.15, max: 10, step: 0.05, default: 1 }
+    { key: "contrast", label: "Contrast", min: 0.15, max: 10, step: 0.05, default: 1 },
+    { key: "organic", label: "Rim wander", min: 0, max: 0.15, step: 0.005, default: 0.04 },
+    { key: "edgeSoft", label: "Rim feather", min: 0, max: 0.2, step: 0.005, default: 0.035 },
+    { key: "bleed", label: "Energy bleed", min: 0, max: 3, step: 0.01, default: 0.9 },
+    { key: "reach", label: "Bleed reach", min: 0.02, max: 0.5, step: 0.005, default: 0.1 },
+    { key: "edgeFlow", label: "Edge flow", min: 0, max: 3, step: 0.01, default: 0.35, integrate: true }
   ],
   colors: [
     { key: "glow", label: "Glow", default: "#57ffc9" },
@@ -182,7 +210,11 @@ export const shdr23Orb: OrbVariant = {
       dropout: 0.24,
       light: 1.11,
       rim: 0.66,
-      gain: 0.9
+      gain: 0.9,
+      organic: 0.03,
+      bleed: 0.7,
+      reach: 0.08,
+      edgeFlow: 0.3
     },
     /*
       thinking STREAMS: the drift runs at six times idle with a steady
@@ -203,7 +235,11 @@ export const shdr23Orb: OrbVariant = {
       light: 0.855,
       rim: 0.51,
       contrast: 1.3,
-      gain: 0.95
+      gain: 0.95,
+      organic: 0.045,
+      bleed: 0.9,
+      reach: 0.1,
+      edgeFlow: 0.8
     },
     /*
       speaking PULSES, hard: radial waves at more than double the thinking
@@ -225,7 +261,11 @@ export const shdr23Orb: OrbVariant = {
       dropout: 0.59,
       light: 0.39,
       rim: 0.51,
-      gain: 2.95
+      gain: 2.95,
+      organic: 0.06,
+      bleed: 1.3,
+      reach: 0.13,
+      edgeFlow: 1.1
     }
   },
   // violet at rest, aqua while searching, red while answering

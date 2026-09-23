@@ -153,7 +153,14 @@ void main() {
   ionExposure = uP_exposure * (1.0 - 0.35 * uOutput);
   ionRadius = uP_envRadius + uP_swell * uInput;
 
-  vec3 acc = ionRender(gl_FragCoord.xy);
+  // Organic glass: the globe's screen radius, from the same ray geometry as
+  // the chord (closest approach = radius). Pixels past the rim are rendered
+  // at the rim point below them, so the wandering edge and the escaping light
+  // carry the real filament colour where a streamer lands on the glass.
+  vec2 uv = orbUV();
+  float Rs = uP_focal * ionRadius / sqrt(max(uP_camDist * uP_camDist - ionRadius * ionRadius, 1e-4));
+  vec2 rimUv = orbRimUV(uv, Rs);
+  vec3 acc = ionRender(orbFragCoord(rimUv));
 
   // tanh tone map with a tunable knee, then the usual finishing chain
   vec3 col = tanh3(acc / max(ionExposure, 0.01));
@@ -169,17 +176,32 @@ void main() {
   float a = clamp(peak * uP_alphaGain, 0.0, 1.0);
 
   // analytic silhouette, identical construction to shdr-01: exact
-  // ray-to-centre distance against the radius, colour AND alpha
-  vec3 mrd = normalize(vec3(orbUV(), -uP_focal));
+  // ray-to-centre distance against the radius, colour AND alpha. Taken at
+  // the rim point so it only shapes the inside; the organic mask owns the
+  // cut itself, wandering and feathering it instead of a circle stamp.
+  vec3 mrd = normalize(vec3(rimUv, -uP_focal));
   float closest = length(cross(vec3(0.0, 0.0, uP_camDist), mrd));
   float band = mix(0.35, 0.012, clamp(uP_edge, 0.0, 1.0));
   float mask = 1.0 - smoothstep(ionRadius * (1.0 - band), ionRadius * 1.005, closest);
-  col *= mask;
-  a *= mask;
+  mask *= orbOrganicMask(uv, Rs, uP_organic, uP_edgeSoft, uP_edgeFlow);
+
+  // discharge escaping the glass. The rim colour is constant along each
+  // radius, so past the glass it fades into a slow screen-space field of arc
+  // light; otherwise every streamer tip smears into a radial spike.
+  float r = length(uv);
+  float haze = fbm(uv * 3.0 + vec2(uP_edgeFlow * 0.7, -uP_edgeFlow * 0.4));
+  vec3 fieldCol = mix(uC_arc, uC_inner, 0.2) * uC_tint * (0.1 + 1.8 * haze * haze);
+  vec3 escCol = mix(col, fieldCol, smoothstep(Rs * 0.99, Rs * 1.15, r));
+  float bleed = orbBleed(uv, Rs, uP_reach, uP_edgeFlow) * uP_bleed * (0.7 + 0.6 * uOutput);
+  vec3 glow = escCol * bleed * (1.0 - mask);
+  // the same light caught in the glass just inside the rim, so the short
+  // limb chords do not leave a dark moat between the arcs and the glow
+  col += fieldCol * bleed * 0.35 * smoothstep(Rs * 0.8, Rs, r);
+  float glowA = clamp(max(glow.r, max(glow.g, glow.b)) * uP_alphaGain, 0.0, 1.0);
 
   // Emitted light, so rgb is already premultiplied — do NOT scale by alpha
   // again (see the same note in shdr-31).
-  gl_FragColor = vec4(col, a);
+  gl_FragColor = vec4(col * mask + glow, max(a * mask, glowA));
 }
 `;
 
@@ -193,7 +215,7 @@ export const shdr13Orb: OrbVariant = {
     { key: "spin", label: "Spin rate", min: 0, max: 5, step: 0.03, default: 0.2, integrate: true },
     { key: "camDist", label: "Camera distance", min: 1, max: 50, step: 0.3, default: 7 },
     { key: "focal", label: "Lens", min: 0.15, max: 15, step: 0.1, default: 2.25 },
-    { key: "envRadius", label: "Globe radius", min: 0.15, max: 15, step: 0.1, default: 2.6 },
+    { key: "envRadius", label: "Globe radius", min: 0.15, max: 15, step: 0.1, default: 2.3 },
     { key: "swell", label: "Input swell", min: 0, max: 1, step: 0.01, default: 0.15 },
     { key: "tilt", label: "Axis tilt", min: 0, max: 4, step: 0.02, default: 0.4 },
     { key: "fils", label: "Filament density", min: 0.5, max: 12, step: 0.1, default: 6 },
@@ -211,7 +233,12 @@ export const shdr13Orb: OrbVariant = {
     { key: "contrast", label: "Contrast", min: 0.15, max: 15, step: 0.1, default: 1 },
     { key: "saturation", label: "Saturation", min: 0, max: 4, step: 0.02, default: 1.2 },
     { key: "alphaGain", label: "Alpha gain", min: 0.05, max: 15, step: 0.1, default: 2.5 },
-    { key: "edge", label: "Edge sharpness", min: 0, max: 1, step: 0.01, default: 1 }
+    { key: "edge", label: "Edge sharpness", min: 0, max: 1, step: 0.01, default: 1 },
+    { key: "organic", label: "Rim wander", min: 0, max: 0.15, step: 0.005, default: 0.04 },
+    { key: "edgeSoft", label: "Rim feather", min: 0, max: 0.2, step: 0.005, default: 0.035 },
+    { key: "bleed", label: "Energy bleed", min: 0, max: 3, step: 0.01, default: 0.9 },
+    { key: "reach", label: "Bleed reach", min: 0.02, max: 0.5, step: 0.005, default: 0.1 },
+    { key: "edgeFlow", label: "Edge flow", min: 0, max: 3, step: 0.01, default: 0.35, integrate: true }
   ],
   colors: [
     { key: "inner", label: "Nucleus", default: "#ff70d8" },
@@ -230,7 +257,12 @@ export const shdr13Orb: OrbVariant = {
       whiten: 0.008,
       tipGain: 1.8,
       coreGain: 1.6,
-      exposure: 11
+      exposure: 11,
+      organic: 0.03,
+      edgeSoft: 0.035,
+      bleed: 0.7,
+      reach: 0.08,
+      edgeFlow: 0.3
     },
     // hunting: even more filaments, softer and more nebular, restless writhe
     thinking: {
@@ -243,7 +275,12 @@ export const shdr13Orb: OrbVariant = {
       whiten: 0.012,
       tipGain: 1.5,
       coreGain: 1.2,
-      exposure: 10
+      exposure: 10,
+      organic: 0.045,
+      edgeSoft: 0.04,
+      bleed: 0.9,
+      reach: 0.1,
+      edgeFlow: 0.8
     },
     // discharge: the densest, brightest state — spiky arcs flaring hard on
     // the glass around a blazing core
@@ -257,7 +294,12 @@ export const shdr13Orb: OrbVariant = {
       whiten: 0.012,
       tipGain: 2.4,
       coreGain: 2,
-      exposure: 8.5
+      exposure: 8.5,
+      organic: 0.06,
+      edgeSoft: 0.045,
+      bleed: 1.3,
+      reach: 0.15,
+      edgeFlow: 1.1
     }
   }
 };

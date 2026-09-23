@@ -45,6 +45,14 @@ import { ShaderOrb, type OrbVariant, type ShaderOrbProps } from "@/components/ui
    the peak channel for emitted light, a night fill so the ball reads as a
    solid sphere behind the gas. Uninitialised locals are explicit; loop
    bounds are defines.
+
+   THE EDGE IS NOT A CUT. The envelope that bounds the march is allowed to
+   reach past the ball (spill), further where an arm runs into it and in
+   clumps that stream outward on the edge-flow clock, so spiral-arm gas and
+   its dust visibly spill over the rim as real marched structure. The solid
+   night fill and glass rim sit behind it on a wandering, feathered
+   silhouette, and a thin tendril glow (orbBleed) carries the outer-arm
+   colour past it. spill 1, wander 0 and bleed 0 give back the old sphere.
 ---------------------------------------------------------------------------- */
 
 const GALAXY_FRAG = `
@@ -61,7 +69,7 @@ float galFalloff;
   in xz, the normal is y. Returns the density; writes the arm weight and the
   cylindrical radius for the colour.
 */
-float galaxy(vec3 p, float t, out float arm, out float rho) {
+float galaxy(vec3 p, float t, out float arm, out float rho, out float turb) {
   rho = length(p.xz);
   float h = p.y;
   // atan(0, 0) is undefined; the exact axis is all bulge anyway
@@ -78,6 +86,7 @@ float galaxy(vec3 p, float t, out float arm, out float rho) {
   }
   float n = (sin(q.x) + sin(q.y) + sin(q.z)) / 3.0 * 0.5 + 0.5;
   float clump = smoothstep(uP_threshold, 1.0, n);
+  turb = n;
 
   arm = 0.5 + 0.5 * cos(armPhase + (n - 0.5) * uP_ragged);
   arm = pow(arm, uP_armSharp);
@@ -135,26 +144,46 @@ vec4 galaxyRender(vec2 fragCoord) {
   // extinction weighted to blue, so thick gas reddens what is behind it
   vec3 absorb = vec3(0.7, 1.0, 1.5) * uP_absorb;
 
+  // how far past the ball the envelope may reach, swelling with the voice
+  float spill = max(uP_spill - 1.0, 0.0) * (0.8 + 0.5 * uOutput);
+  float envMax = uP_envRadius * (1.0 + spill);
+
   // march only the span the envelope can light
-  float z = max(uP_camDist - uP_envRadius * 1.05, 0.0);
-  float zEnd = uP_camDist + uP_envRadius * 1.05;
+  float z = max(uP_camDist - envMax * 1.05, 0.0);
+  float zEnd = uP_camDist + envMax * 1.05;
   float dt = (zEnd - z) / float(STEPS);
   // a hashed start offset per pixel hides the step banding
   z += dt * hash(fragCoord * 0.37);
 
   for (int i = 0; i < STEPS; i++) {
     vec3 p = ro + rd * z;
+    float rp = length(p);
 
-    // envelope: nothing outside the ball contributes
-    float env = 1.0 - smoothstep(uP_envRadius * 0.92, uP_envRadius, length(p));
-    if (env > 0.001) {
+    if (rp < envMax) {
       // into the galaxy frame
       vec3 g = vec3(p.x, p.y * ct - p.z * st, p.y * st + p.z * ct);
       g = vec3(g.x * cs - g.z * sn, g.y, g.x * sn + g.z * cs);
 
       float arm = 0.0;
       float rho = 0.0;
-      float d = galaxy(g / uP_envRadius, t, arm, rho) * env;
+      float turb = 0.0;
+      float d = galaxy(g / uP_envRadius, t, arm, rho, turb);
+
+      /*
+        The envelope. Inside the ball it is the old soft sphere; past it the
+        outer edge is pushed out by the gas itself: furthest along the arms
+        and in turbulent clumps, and broken into blobs that stream outward
+        on the edge-flow clock, so the arms spill and fray over the rim.
+      */
+      float rOut = uP_envRadius;
+      if (spill > 0.0 && rp > uP_envRadius * 0.85) {
+        vec3 dir = p / rp;
+        float wn = orbEdgeNoise(dir * 3.0 + vec3(0.0, 0.0, rp / uP_envRadius * 4.0 - uP_edgeFlow * 1.5));
+        float reachW = (0.25 + 0.75 * arm) * (0.5 + turb) * smoothstep(0.2, 0.8, wn);
+        rOut += uP_envRadius * spill * clamp(reachW * 1.5, 0.0, 1.2);
+      }
+      float env = 1.0 - smoothstep(uP_envRadius * 0.92, rOut, rp);
+      d *= env;
 
       // the colour ramp, keyed to radius from the core
       vec3 ramp = mix(uC_inner, uC_outer, smoothstep(0.12, uP_hueReach, rho));
@@ -200,7 +229,10 @@ void main() {
     if (abs(denom) > 1e-4) {
       float th = -dot(N, ro) / denom;
       vec3 q = ro + rd * th;
-      if (th > 0.0 && dot(q, q) < uP_envRadius * uP_envRadius * 0.9) {
+      // with spill, a sprinkle of stars rides the arms out past the rim too
+      float sr = uP_envRadius * 0.9487 * max(uP_spill, 1.0);
+      if (th > 0.0 && length(q) < sr) {
+        float starOut = 1.0 - smoothstep(uP_envRadius * 0.9487, sr + 1e-3, length(q));
         vec3 g = vec3(q.x, q.y * ct - q.z * st, q.y * st + q.z * ct) / uP_envRadius;
         float cs = cos(uP_spin);
         float sn = sin(uP_spin);
@@ -210,7 +242,7 @@ void main() {
         float armW = 0.5 + 0.5 * cos(phi * uP_arms - uP_wind * log(max(rho, 0.02)));
         float sf = starField(gp * uP_starScale, uP_starDensity * (0.3 + 0.7 * armW), 0.12, uP_twinkle);
         float veil = 1.0 - acc.a; // what the march let through
-        acc.rgb += vec3(1.0, 0.97, 0.9) * sf * uP_stars * exp(-rho * 1.5) * (0.25 + 0.75 * veil);
+        acc.rgb += vec3(1.0, 0.97, 0.9) * sf * uP_stars * exp(-rho * 1.5) * (0.25 + 0.75 * veil) * starOut;
       }
     }
   }
@@ -228,28 +260,41 @@ void main() {
   float peak = max(col.r, max(col.g, col.b));
   float a = clamp(peak * uP_alphaGain, 0.0, 1.0);
 
-  // the night behind: a fill so the ball is a solid sphere, not a cut-out
-  col += uC_deep * uP_fill;
-  a = max(a, uP_fill);
-
-  // Analytic silhouette — identical construction to shdr-01: exact
-  // ray-to-centre distance against the radius, colour AND alpha.
-  vec3 mrd = normalize(vec3(orbUV(), -uP_focal));
+  /*
+    Silhouette. Once the exact ray-to-centre cut from shdr-01; now the
+    sphere's projected radius in uv drives the family's organic mask, so the
+    rim wanders and feathers (the old edge-sharpness band still widens the
+    feather). It bounds only the SOLID part, the night fill and the glass.
+    The gas is not masked: the envelope already confines it, and what the
+    spill carries past the rim is meant to be seen there.
+  */
+  vec2 uv = orbUV();
+  vec3 mrd = normalize(vec3(uv, -uP_focal));
   float closest = length(cross(vec3(0.0, 0.0, uP_camDist), mrd));
+  float Ruv = uP_focal * uP_envRadius / sqrt(max(uP_camDist * uP_camDist - uP_envRadius * uP_envRadius, 1e-3));
   float band = mix(0.35, 0.012, clamp(uP_edge, 0.0, 1.0));
-  float mask = 1.0 - smoothstep(uP_envRadius * (1.0 - band), uP_envRadius * 1.005, closest);
-  col *= mask;
-  a *= mask;
+  float mask = orbOrganicMask(uv, Ruv, uP_organic, uP_edgeSoft + 0.5 * band, uP_edgeFlow);
+
+  // the night behind: a fill so the ball is a solid sphere, not a cut-out
+  col += uC_deep * uP_fill * mask;
+  a = max(a, uP_fill * mask);
 
   // a fresnel rim on the glass, inside the mask
-  float fres = smoothstep(uP_envRadius * 0.7, uP_envRadius, closest);
+  float fres = smoothstep(uP_envRadius * 0.7, uP_envRadius, min(closest, uP_envRadius));
   col += uC_rim * uP_rim * fres * fres * mask;
 
-  // safety taper at the frame boundary — colour as well as alpha
-  float r2d = length(orbUV());
-  float fade = 1.0 - smoothstep(uP_edgeFade, 1.0, r2d);
+  // safety taper at the frame boundary — colour as well as alpha; spilled
+  // gas also has to be gone before the square frame
+  float r2d = length(uv);
+  float fade = (1.0 - smoothstep(uP_edgeFade, 1.0, r2d)) * (1.0 - smoothstep(0.84, 0.99, r2d));
   col *= fade;
   a *= fade;
+
+  // tendril glow past the rim in the outer-arm colour, swelling with the voice
+  float bl = orbBleed(uv, Ruv, uP_reach, uP_edgeFlow) * uP_bleed * (0.7 + 0.6 * uOutput);
+  vec3 glow = mix(uC_outer, uC_rim, 0.35) * uC_tint * bl * (1.0 - mask);
+  col += glow;
+  a = max(a, clamp(max(glow.r, max(glow.g, glow.b)), 0.0, 1.0));
 
   // Emitted light, so rgb is already premultiplied — do NOT scale by alpha
   // again (see the same note in shdr-31).
@@ -269,7 +314,7 @@ export const shdr32Orb: OrbVariant = {
     { key: "twinkle", label: "Twinkle rate", min: 0, max: 12, step: 0.05, default: 1.2, integrate: true },
     { key: "camDist", label: "Camera distance", min: 1, max: 50, step: 0.3, default: 7 },
     { key: "focal", label: "Lens", min: 0.15, max: 15, step: 0.05, default: 2.25 },
-    { key: "envRadius", label: "Envelope radius", min: 0.15, max: 15, step: 0.1, default: 2.6 },
+    { key: "envRadius", label: "Envelope radius", min: 0.15, max: 15, step: 0.1, default: 2.35 },
     { key: "tilt", label: "Tilt (0 edge-on)", min: 0, max: 1.5, step: 0.01, default: 0.85 },
     { key: "arms", label: "Arm count", min: 1, max: 6, step: 1, default: 2 },
     { key: "wind", label: "Arm winding", min: 0, max: 8, step: 0.05, default: 3.4 },
@@ -296,7 +341,13 @@ export const shdr32Orb: OrbVariant = {
     { key: "fill", label: "Night fill", min: 0, max: 1, step: 0.01, default: 0.85 },
     { key: "rim", label: "Rim light", min: 0, max: 3, step: 0.015, default: 0.35 },
     { key: "edge", label: "Edge sharpness", min: 0, max: 1, step: 0.01, default: 1 },
-    { key: "edgeFade", label: "Halo falloff", min: 0.1, max: 3, step: 0.015, default: 0.98 }
+    { key: "edgeFade", label: "Halo falloff", min: 0.1, max: 3, step: 0.015, default: 0.98 },
+    { key: "spill", label: "Gas spill", min: 1, max: 1.8, step: 0.01, default: 1.3 },
+    { key: "organic", label: "Rim wander", min: 0, max: 0.15, step: 0.005, default: 0.045 },
+    { key: "edgeSoft", label: "Rim feather", min: 0, max: 0.2, step: 0.005, default: 0.035 },
+    { key: "bleed", label: "Energy bleed", min: 0, max: 3, step: 0.01, default: 0.4 },
+    { key: "reach", label: "Bleed reach", min: 0.02, max: 0.5, step: 0.005, default: 0.085 },
+    { key: "edgeFlow", label: "Edge flow", min: 0, max: 3, step: 0.01, default: 0.35, integrate: true }
   ],
   /*
    * Six stops: the overall tint, the core the bulge whitens toward, the
@@ -341,7 +392,13 @@ export const shdr32Orb: OrbVariant = {
       stars: 1.2,
       exposure: 1.1,
       contrast: 1.15,
-      saturation: 1.35
+      saturation: 1.35,
+      spill: 1.3,
+      organic: 0.04,
+      edgeSoft: 0.035,
+      bleed: 0.35,
+      reach: 0.08,
+      edgeFlow: 0.3
     },
     /*
       searching: the disc swings FACE-ON and becomes a whirlpool. The arms
@@ -368,7 +425,13 @@ export const shdr32Orb: OrbVariant = {
       stars: 1.8,
       exposure: 1.05,
       contrast: 1.3,
-      saturation: 1.2
+      saturation: 1.2,
+      spill: 1.4,
+      organic: 0.05,
+      edgeSoft: 0.04,
+      bleed: 0.45,
+      reach: 0.085,
+      edgeFlow: 0.9
     },
     /*
       answering: the disc swings FACE-ON and lights up — the full spiral,
@@ -395,7 +458,13 @@ export const shdr32Orb: OrbVariant = {
       stars: 2,
       exposure: 0.75,
       contrast: 1.05,
-      saturation: 1.6
+      saturation: 1.6,
+      spill: 1.55,
+      organic: 0.065,
+      edgeSoft: 0.045,
+      bleed: 0.7,
+      reach: 0.1,
+      edgeFlow: 1.1
     }
   },
   // blue into violet at rest, ice into cyan while searching, gold into rose

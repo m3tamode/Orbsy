@@ -36,17 +36,15 @@ const ROCAILLE_FRAG = `
 #define LAYERS 10
 #define WARP 9
 
-void main() {
-  vec2 uv = orbUV();
-  float R = uP_radius + uP_swell * uInput;
-  float r2d = length(uv);
-  float mask = smoothstep(0.012, -0.012, r2d - R);
-  float nr = clamp(r2d / max(R, 0.001), 0.0, 1.0);
+// The dome's colour (rgb) and visibility (a) at screen point suv, which
+// main() keeps on or inside the rim.
+vec4 rocaille(vec2 suv, float R) {
+  float nr = clamp(length(suv) / max(R, 0.001), 0.0, 1.0);
   float z = sqrt(max(1.0 - nr * nr, 0.0));
 
   float animTime = uP_speed; // integrated clock
 
-  vec3 sp = vec3(uv / max(R, 0.001), z);
+  vec3 sp = vec3(suv / max(R, 0.001), z);
 
   /*
     Stereographic projection: sphere → plane. Equal steps in screen space map to
@@ -104,11 +102,53 @@ void main() {
 
   float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
   float visibility = clamp(lum * uP_alphaGain + uP_baseVis + fresnel * 0.25, 0.0, 1.0);
+  return vec4(col, visibility);
+}
+
+// The rim point below uv, turned by ang about the centre.
+vec2 edgeTap(vec2 uv, float R, float ang) {
+  vec2 q = orbRimUV(uv, R);
+  float c = cos(ang);
+  float s = sin(ang);
+  return vec2(q.x * c - q.y * s, q.x * s + q.y * c);
+}
+
+void main() {
+  vec2 uv = orbUV();
+  float R = uP_radius + uP_swell * uInput;
+
+  /*
+    Organic edge: the silhouette was a two-pixel smoothstep on length(uv),
+    which read as a disc punched out of the field. It now wanders and
+    feathers (orbOrganicMask), and the dome is sampled at the rim point
+    under each pixel (orbRimUV), so the lumps past the true radius and the
+    bleed beyond them carry the scrollwork that touches the edge. A rim
+    sample is constant along the radius, so the fine filigree would smear
+    into radial spikes: out there it is averaged over rim taps whose angular
+    spread widens with distance, which blurs it into soft wisps.
+  */
+  float mask = orbOrganicMask(uv, R, uP_organic, uP_edgeSoft, uP_edgeFlow);
+  vec4 dome = rocaille(orbRimUV(uv, R), R);
+  float spread = 2.5 * max(length(uv) - 0.96 * R, 0.0) / max(R, 0.001);
+  if (spread > 0.0) {
+    dome = dome * 0.2
+         + 0.2 * (rocaille(edgeTap(uv, R, spread), R) + rocaille(edgeTap(uv, R, -spread), R))
+         + 0.2 * (rocaille(edgeTap(uv, R, spread * 0.5), R) + rocaille(edgeTap(uv, R, -spread * 0.5), R));
+  }
+  vec3 col = dome.rgb;
+  float visibility = dome.a;
 
   // Surface-lit and mask-bounded, so alpha is coverage: premultiply normally.
   // (Unlike Corona and Nimbus, which are emissive and must not be.)
   float a = mask * visibility;
-  gl_FragColor = vec4(col * a, a);
+
+  // Energy creeping out past the rim: the rim scrollwork's own light,
+  // broken into drifting tendrils and swelling with the agent's voice.
+  float bleed = orbBleed(uv, R, uP_reach, uP_edgeFlow) * uP_bleed * (0.7 + 0.6 * uOutput);
+  vec3 glow = col * visibility * bleed * (1.0 - mask);
+  float glowA = clamp(max(glow.r, max(glow.g, glow.b)), 0.0, 1.0);
+
+  gl_FragColor = vec4(col * a + glow, max(a, glowA));
 }
 `;
 
@@ -120,7 +160,7 @@ export const shdr02Orb: OrbVariant = {
   params: [
     { key: "speed", label: "Anim speed", min: 0.015, max: 10, step: 0.05, default: 0.5, integrate: true },
     { key: "swirl", label: "Swirl", min: 0, max: 3, step: 0.015, default: 0.06 },
-    { key: "radius", label: "Radius", min: 0.15, max: 3, step: 0.015, default: 0.9 },
+    { key: "radius", label: "Radius", min: 0.15, max: 3, step: 0.015, default: 0.8 },
     { key: "swell", label: "Input swell", min: 0, max: 1, step: 0.01, default: 0.06 },
     { key: "zoom", label: "Pattern zoom", min: 0.15, max: 40, step: 0.2, default: 4.4 },
     { key: "bulge", label: "Sphere bulge", min: 0, max: 10, step: 0.05, default: 0.35 },
@@ -132,7 +172,12 @@ export const shdr02Orb: OrbVariant = {
     { key: "rim", label: "Rim light", min: 0, max: 3, step: 0.015, default: 0.12 },
     { key: "rimPow", label: "Rim tightness", min: 0.15, max: 15, step: 0.1, default: 2.2 },
     { key: "alphaGain", label: "Alpha gain", min: 0.05, max: 15, step: 0.1, default: 2.4 },
-    { key: "baseVis", label: "Base visibility", min: 0, max: 1.5, step: 0.01, default: 0.08 }
+    { key: "baseVis", label: "Base visibility", min: 0, max: 1.5, step: 0.01, default: 0.08 },
+    { key: "organic", label: "Rim wander", min: 0, max: 0.15, step: 0.005, default: 0.04 },
+    { key: "edgeSoft", label: "Rim feather", min: 0, max: 0.2, step: 0.005, default: 0.035 },
+    { key: "bleed", label: "Energy bleed", min: 0, max: 3, step: 0.01, default: 0.9 },
+    { key: "reach", label: "Bleed reach", min: 0.02, max: 0.5, step: 0.005, default: 0.1 },
+    { key: "edgeFlow", label: "Edge flow", min: 0, max: 3, step: 0.01, default: 0.35, integrate: true }
   ],
   colors: [],
   /*
@@ -155,7 +200,11 @@ export const shdr02Orb: OrbVariant = {
       falloff: 1,
       gain: 0.55,
       rim: 0.12,
-      alphaGain: 2.4
+      alphaGain: 2.4,
+      organic: 0.03,
+      bleed: 0.7,
+      reach: 0.08,
+      edgeFlow: 0.3
     },
     thinking: {
       speed: 0.65,
@@ -165,7 +214,11 @@ export const shdr02Orb: OrbVariant = {
       falloff: 0.96,
       gain: 0.6,
       rim: 0.13,
-      alphaGain: 2.5
+      alphaGain: 2.5,
+      organic: 0.045,
+      bleed: 0.9,
+      reach: 0.1,
+      edgeFlow: 0.75
     },
     /*
       speaking is SPEED-led, like hydrogen's: the scrollwork keeps the idle
@@ -187,7 +240,11 @@ export const shdr02Orb: OrbVariant = {
       falloff: 1.1,
       gain: 0.85,
       rim: 0.2,
-      alphaGain: 3
+      alphaGain: 3,
+      organic: 0.06,
+      bleed: 1.3,
+      reach: 0.13,
+      edgeFlow: 1.1
     }
   }
 };

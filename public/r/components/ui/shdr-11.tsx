@@ -28,9 +28,17 @@ void main() {
   vec2 uv = orbUV();
   float r2d = length(uv);
   float R = uP_radius + uP_swell * uInput;
-  float mask = smoothstep(0.012, -0.012, r2d - R);
+  // Organic rim: the silhouette wanders and feathers instead of the hard
+  // smoothstep it used to be. Past R the dome is clamped flat (nr = 1) but
+  // the orbital is still sampled at uv / R, so the lumps and the bleed show
+  // the wave function carrying on off the sphere, not a rim colour smeared
+  // into radial rays.
+  float mask = orbOrganicMask(uv, R, uP_organic, uP_edgeSoft, uP_edgeFlow);
   float nr = clamp(r2d / max(R, 0.001), 0.0, 1.0);
-  float z = sqrt(max(1.0 - nr * nr, 0.0));
+  // The dome's z runs into the limb with infinite slope, which pinches the
+  // orbital into a crisp bright ring there; the rim feather eases it so the
+  // limb never quite reaches z = 0 and the edge stays soft.
+  float z = sqrt(max(1.0 - nr * nr * (1.0 - 2.0 * uP_edgeSoft), 0.0));
 
   // uP_speed and uP_flowSpeed arrive pre-integrated as clocks (see
   // OrbParamDef.integrate), so state transitions stay phase-continuous.
@@ -134,7 +142,13 @@ void main() {
   float visibility = clamp(probability * 1.2 + fresnel * 0.3 + uP_baseVis + uInput * 0.15, 0.0, 1.0);
 
   float a = mask * visibility;
-  gl_FragColor = vec4(surfaceColor * a, a);
+
+  // energy creeping out past the rim in tendrils, swelling with the voice
+  float bleed = orbBleed(uv, R, uP_reach, uP_edgeFlow) * uP_bleed * (0.7 + 0.6 * uOutput);
+  vec3 glow = surfaceColor * visibility * bleed * (1.0 - mask);
+  float glowA = clamp(max(glow.r, max(glow.g, glow.b)), 0.0, 1.0);
+
+  gl_FragColor = vec4(surfaceColor * a + glow, max(a, glowA));
 }
 `;
 
@@ -146,7 +160,7 @@ export const shdr11Orb: OrbVariant = {
   params: [
     { key: "speed", label: "Anim speed", min: 0.015, max: 10, step: 0.05, default: 0.9, integrate: true },
     { key: "rotSpeed", label: "Rotation speed", min: 0, max: 5, step: 0.05, default: 0.5 },
-    { key: "radius", label: "Radius", min: 0.15, max: 3, step: 0.015, default: 0.9 },
+    { key: "radius", label: "Radius", min: 0.15, max: 3, step: 0.015, default: 0.78 },
     { key: "swell", label: "Input swell", min: 0, max: 1, step: 0.01, default: 0.07 },
     { key: "posScale", label: "Orbital zoom", min: 0.15, max: 10, step: 0.05, default: 0.5 },
     { key: "flowSpeed", label: "Flow speed", min: 0, max: 10, step: 0.05, default: 0.35, integrate: true },
@@ -161,7 +175,12 @@ export const shdr11Orb: OrbVariant = {
     { key: "chromaSpread", label: "Chroma spread", min: 0, max: 1.5, step: 0.01, default: 0.18 },
     { key: "glow", label: "Glow", min: 0, max: 5, step: 0.05, default: 0.9 },
     { key: "metalDark", label: "Metal darkness", min: 0, max: 3, step: 0.015, default: 0 },
-    { key: "baseVis", label: "Base visibility", min: 0, max: 1.5, step: 0.01, default: 0.12 }
+    { key: "baseVis", label: "Base visibility", min: 0, max: 1.5, step: 0.01, default: 0.12 },
+    { key: "organic", label: "Rim wander", min: 0, max: 0.15, step: 0.005, default: 0.04 },
+    { key: "edgeSoft", label: "Rim feather", min: 0, max: 0.2, step: 0.005, default: 0.035 },
+    { key: "bleed", label: "Energy bleed", min: 0, max: 3, step: 0.01, default: 0.9 },
+    { key: "reach", label: "Bleed reach", min: 0.02, max: 0.5, step: 0.005, default: 0.1 },
+    { key: "edgeFlow", label: "Edge flow", min: 0, max: 3, step: 0.01, default: 0.35, integrate: true }
   ],
   colors: [],
   statePresets: {
@@ -169,7 +188,7 @@ export const shdr11Orb: OrbVariant = {
     idle: {
       speed: 0.9,
       rotSpeed: 0.5,
-      radius: 0.9,
+      radius: 0.78,
       swell: 0.07,
       posScale: 0.5,
       flowSpeed: 0.35,
@@ -184,14 +203,18 @@ export const shdr11Orb: OrbVariant = {
       chromaSpread: 0.18,
       glow: 0.9,
       metalDark: 0,
-      baseVis: 0.12
+      baseVis: 0.12,
+      organic: 0.03,
+      bleed: 0.7,
+      reach: 0.08,
+      edgeFlow: 0.3
     },
     // thinking: wider zoom, heavier flow, tighter shells, wide chroma —
     // restless but not loud
     thinking: {
       speed: 0.9,
       rotSpeed: 0.5,
-      radius: 0.9,
+      radius: 0.78,
       swell: 0.07,
       posScale: 0.65,
       flowSpeed: 0.35,
@@ -206,14 +229,18 @@ export const shdr11Orb: OrbVariant = {
       chromaSpread: 0.41,
       glow: 0.9,
       metalDark: 0,
-      baseVis: 0.12
+      baseVis: 0.12,
+      organic: 0.045,
+      bleed: 0.9,
+      reach: 0.1,
+      edgeFlow: 0.8
     },
     // speaking: fast anim, full zoom, quick fine-grained flow, strong
     // precession, bright gain — the loudest, most energetic pattern
     speaking: {
       speed: 2.45,
       rotSpeed: 0.5,
-      radius: 0.9,
+      radius: 0.78,
       swell: 0.07,
       posScale: 1,
       flowSpeed: 2.75,
@@ -228,7 +255,11 @@ export const shdr11Orb: OrbVariant = {
       chromaSpread: 0.12,
       glow: 0.9,
       metalDark: 0,
-      baseVis: 0.12
+      baseVis: 0.12,
+      organic: 0.06,
+      bleed: 1.3,
+      reach: 0.13,
+      edgeFlow: 1.1
     }
   }
 };

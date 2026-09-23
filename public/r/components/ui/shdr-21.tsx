@@ -48,6 +48,23 @@ float nimbusPower;
 float nimbusDensity;
 
 /*
+  Organic boundary: the shell radius wanders with direction, so the cloud's
+  outline is lumpy in 3D and its clumps push out past a clean sphere instead
+  of stopping at a circular cut. Cheap trig in the direction with the edge
+  clock only as phase, since this runs inside every density sample. Roughly
+  -0.5..0.5, like the prelude's edge noise.
+*/
+float nimbusLump(vec3 dir) {
+  float t = uP_edgeFlow;
+  return 0.2 * sin(dir.x * 3.1 + dir.y * 1.7 + t * 1.3)
+       + 0.17 * sin(dir.y * 3.7 - dir.z * 2.3 - t * 1.1)
+       + 0.13 * sin(dir.z * 5.3 + dir.x * 4.1 + t * 1.7);
+}
+
+// The march bound: the furthest the wandering shell can reach.
+float nimbusOuter() { return uP_radius * (1.0 + uP_organic); }
+
+/*
   Density inside the sphere.
 
   The radial term falls to zero at the boundary, which both bounds the volume
@@ -56,7 +73,8 @@ float nimbusDensity;
   carves that into clumps rather than an even fog.
 */
 float density(vec3 p, float animTime) {
-  float shell = 1.0 - length(p) / uP_radius;
+  float r = length(p);
+  float shell = 1.0 - r / (uP_radius * (1.0 + 2.0 * uP_organic * nimbusLump(p / max(r, 1e-4))));
   if (shell <= 0.0) return 0.0;
 
   vec3 q = p * uP_scale;
@@ -70,7 +88,7 @@ float density(vec3 p, float animTime) {
   // smoothstep against the threshold is the clump control: high threshold
   // leaves sparse wisps, low fills the sphere with even fog
   float clump = smoothstep(uP_threshold, 1.0, n);
-  return clump * pow(shell, uP_edgeSoft) * nimbusDensity;
+  return clump * pow(shell, uP_shellSoft) * nimbusDensity;
 }
 
 /*
@@ -85,6 +103,14 @@ float density(vec3 p, float animTime) {
 float phaseHG(float c, float g) {
   float g2 = g * g;
   return (1.0 - g2) / pow(max(1.0 + g2 - 2.0 * g * c, 0.0001), 1.5);
+}
+
+vec3 nimbusLight(float animTime) {
+  return normalize(vec3(
+    cos(animTime * uP_lightSpin) * 0.7,
+    0.45,
+    sin(animTime * uP_lightSpin) * 0.35 + 0.65
+  ));
 }
 
 vec4 nimbusRender(vec2 fragCoord) {
@@ -104,19 +130,15 @@ vec4 nimbusRender(vec2 fragCoord) {
     on its back-scatter tail, where it is roughly ten times smaller, and the orb
     goes muddy.
   */
-  vec3 L = normalize(vec3(
-    cos(animTime * uP_lightSpin) * 0.7,
-    0.45,
-    sin(animTime * uP_lightSpin) * 0.35 + 0.65
-  ));
+  vec3 L = nimbusLight(animTime);
 
   float phase = phaseHG(dot(rd, L), uP_aniso);
 
   // Start the march at the sphere's front face instead of the camera — every
   // step before that contributes nothing, and at 56 steps they are expensive.
   float toCentre = uP_camDist;
-  float tStart = max(toCentre - uP_radius, 0.0);
-  float span = 2.0 * uP_radius;
+  float tStart = max(toCentre - nimbusOuter(), 0.0);
+  float span = 2.0 * nimbusOuter();
   float dt = span / float(STEPS);
 
   float T = 1.0;
@@ -189,9 +211,32 @@ void main() {
   vec3 col = tanh3(acc.rgb * uP_exposure);
   float a = clamp(acc.a * uP_alphaGain, 0.0, 1.0);
 
+  /*
+    Energy bleeding off the cloud. The volume already fades itself out, so
+    there is no mask to replace: the lumpy shell above does the wandering,
+    and this adds scattered light drifting out past it in tendrils. Its
+    colour is the lamp seen through the limb, warm on the side facing the
+    light and shadow-cool opposite, so it needs no second march. Rs is the
+    sphere's screen radius; the visible cloud thins out a little inside it.
+  */
+  vec2 uv = orbUV();
+  float r = length(uv);
+  float Rs = uP_focal * uP_radius / sqrt(max(uP_camDist * uP_camDist - uP_radius * uP_radius, 1e-4));
+  float Rv = Rs * 0.85;
+  vec3 L = nimbusLight(uP_speed);
+  float facing = 0.5 + 0.5 * dot(uv / max(r, 1e-4), normalize(L.xy));
+  vec3 limbCol = mix(uC_shadow, uC_light, facing) * (0.3 + 0.1 * nimbusPower) * (0.35 + 0.65 * facing);
+  float outside = 1.0 - orbOrganicMask(uv, Rv, uP_organic, uP_edgeSoft, uP_edgeFlow);
+  // a smooth share of plain falloff under the tendrils, so the gaps between
+  // wisps read as thinner haze rather than dark strokes through the glow
+  float haze = exp(-max(r - Rv, 0.0) / (Rv * uP_reach * 1.5)) * (1.0 - smoothstep(0.84, 1.0, r));
+  float bleed = mix(orbBleed(uv, Rv, uP_reach, uP_edgeFlow), haze, 0.35) * uP_bleed * (0.7 + 0.6 * uOutput);
+  vec3 glow = tanh3(limbCol * bleed) * outside;
+  float glowA = clamp(max(glow.r, max(glow.g, glow.b)), 0.0, 1.0);
+
   // Emitted/scattered light, so rgb is already premultiplied — do NOT multiply
   // by alpha again (see the same note in shdr-31).
-  gl_FragColor = vec4(col, a);
+  gl_FragColor = vec4(col + glow, max(a, glowA));
 }
 `;
 
@@ -204,11 +249,11 @@ export const shdr21Orb: OrbVariant = {
     { key: "speed", label: "Anim speed", min: 0.015, max: 10, step: 0.05, default: 10, integrate: true },
     { key: "camDist", label: "Camera distance", min: 0.5, max: 40, step: 0.2, default: 4.4 },
     { key: "focal", label: "Lens", min: 0.3, max: 15, step: 0.1, default: 1.8 },
-    { key: "radius", label: "Cloud radius", min: 0.15, max: 10, step: 0.05, default: 2 },
+    { key: "radius", label: "Cloud radius", min: 0.15, max: 10, step: 0.05, default: 1.85 },
     { key: "scale", label: "Cloud scale", min: 0.1, max: 15, step: 0.1, default: 0.8 },
     { key: "churn", label: "Churn", min: 0, max: 5, step: 0.03, default: 0.3 },
     { key: "threshold", label: "Clumping", min: 0, max: 3, step: 0.015, default: 0.075 },
-    { key: "edgeSoft", label: "Edge softness", min: 0.1, max: 10, step: 0.05, default: 0.8 },
+    { key: "shellSoft", label: "Shell falloff", min: 0.1, max: 10, step: 0.05, default: 0.8 },
     { key: "density", label: "Density", min: 0.03, max: 20, step: 0.1, default: 3.2 },
     { key: "absorb", label: "Absorption", min: 0.03, max: 15, step: 0.1, default: 1.4 },
     { key: "shadowAbsorb", label: "Shadow depth", min: 0, max: 20, step: 0.1, default: 2.4 },
@@ -218,7 +263,12 @@ export const shdr21Orb: OrbVariant = {
     { key: "power", label: "Light power", min: 0.03, max: 40, step: 0.2, default: 1.9 },
     { key: "ambient", label: "Ambient", min: 0, max: 3, step: 0.015, default: 0.12 },
     { key: "exposure", label: "Exposure", min: 0.03, max: 10, step: 0.05, default: 1 },
-    { key: "alphaGain", label: "Alpha gain", min: 0.05, max: 10, step: 0.05, default: 1.5 }
+    { key: "alphaGain", label: "Alpha gain", min: 0.05, max: 10, step: 0.05, default: 1.5 },
+    { key: "organic", label: "Rim wander", min: 0, max: 0.15, step: 0.005, default: 0.06 },
+    { key: "edgeSoft", label: "Rim feather", min: 0, max: 0.2, step: 0.005, default: 0.08 },
+    { key: "bleed", label: "Energy bleed", min: 0, max: 3, step: 0.01, default: 0.9 },
+    { key: "reach", label: "Bleed reach", min: 0.02, max: 0.5, step: 0.005, default: 0.1 },
+    { key: "edgeFlow", label: "Edge flow", min: 0, max: 3, step: 0.01, default: 0.35, integrate: true }
   ],
   /*
    * The engine uploads these as uC_<key> vec3 uniforms. Warm light against a
@@ -239,17 +289,29 @@ export const shdr21Orb: OrbVariant = {
     idle: {
       ambient: 0.12,
       power: 1.9,
-      shadowLift: 0.55
+      shadowLift: 0.55,
+      organic: 0.05,
+      bleed: 0.7,
+      reach: 0.08,
+      edgeFlow: 0.3
     },
     thinking: {
       ambient: 0.22,
       power: 2.15,
-      shadowLift: 0.65
+      shadowLift: 0.65,
+      organic: 0.07,
+      bleed: 0.9,
+      reach: 0.1,
+      edgeFlow: 0.8
     },
     speaking: {
       ambient: 0.46,
       power: 3.1,
-      shadowLift: 0.95
+      shadowLift: 0.95,
+      organic: 0.09,
+      bleed: 1.3,
+      reach: 0.13,
+      edgeFlow: 1.1
     }
   },
   /*
