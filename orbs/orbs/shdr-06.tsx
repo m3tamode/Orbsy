@@ -187,6 +187,30 @@ vec3 moireRender(vec2 fragCoord) {
   return col;
 }
 
+vec3 moireAt(vec2 fc) {
+  vec3 col = vec3(0.0);
+#if AA > 1
+  for (int mx = 0; mx < AA; mx++) {
+    for (int my = 0; my < AA; my++) {
+      vec2 off = (vec2(float(mx), float(my)) + 0.5) / float(AA) - 0.5;
+      col += moireRender(fc + off);
+    }
+  }
+  col /= float(AA * AA);
+#else
+  col = moireRender(fc);
+#endif
+  return max(col, vec3(0.0));
+}
+
+// The rim point below uv, turned by ang about the centre.
+vec2 edgeTap(vec2 uv, float R, float ang) {
+  vec2 q = orbRimUV(uv, R);
+  float c = cos(ang);
+  float s = sin(ang);
+  return vec2(q.x * c - q.y * s, q.x * s + q.y * c);
+}
+
 void main() {
   // Volume coupling: the user's voice widens the walk between layers, the
   // agent's opens the glows and runs the hue through the stack faster.
@@ -194,33 +218,42 @@ void main() {
   moireGlow = max(uP_glowSize * (1.0 - 0.3 * uOutput), 0.002);
   moireHue = uP_hueRate * (1.0 + 0.35 * uOutput);
 
+  /*
+    Organic edge: the silhouette was a two-pixel smoothstep on length(uv), a
+    circle stamp. It now wanders and feathers (orbOrganicMask), and pixels
+    past the true radius render the lattice at the rim point below them
+    (orbRimUV), so the lumps and the bleed beyond carry the stack's real
+    edge colour. A rim sample is constant along the radius, so the lattice
+    lines would smear into radial spikes: out there the colour is averaged
+    over rim taps whose angular spread widens with distance.
+  */
   vec2 uv = orbUV();
-  float mask = smoothstep(0.012, -0.012, length(uv) - max(uP_radius, 0.001));
+  float R = max(uP_radius, 0.001);
+  float mask = orbOrganicMask(uv, R, uP_organic, uP_edgeSoft, uP_edgeFlow);
+  float bleed = orbBleed(uv, R, uP_reach, uP_edgeFlow) * uP_bleed * (0.7 + 0.6 * uOutput);
 
-  // A hundred lattices per sample, none of them worth paying for outside
-  // the silhouette.
-  if (mask <= 0.0) {
+  // A hundred lattices per sample, none of them worth paying for where
+  // neither the body nor its bleed can reach.
+  if (mask <= 0.0 && bleed < 0.002) {
     gl_FragColor = vec4(0.0);
     return;
   }
 
-  vec3 col = vec3(0.0);
-#if AA > 1
-  for (int mx = 0; mx < AA; mx++) {
-    for (int my = 0; my < AA; my++) {
-      vec2 off = (vec2(float(mx), float(my)) + 0.5) / float(AA) - 0.5;
-      col += moireRender(gl_FragCoord.xy + off);
-    }
+  vec3 col = moireAt(orbFragCoord(orbRimUV(uv, R)));
+  float spread = 2.5 * max(length(uv) - 0.96 * R, 0.0) / R;
+  if (spread > 0.0) {
+    col = col * 0.4 + 0.3 * (moireAt(orbFragCoord(edgeTap(uv, R, spread)))
+                           + moireAt(orbFragCoord(edgeTap(uv, R, -spread))));
   }
-  col /= float(AA * AA);
-#else
-  col = moireRender(gl_FragCoord.xy);
-#endif
+
+  // Energy creeping out past the rim in the lattice's own light, swelling
+  // with the agent's voice.
+  vec3 glow = col * bleed * (1.0 - mask);
+  float glowA = clamp(max(glow.r, max(glow.g, glow.b)), 0.0, 1.0);
 
   // Surface orb bounded by a mask: alpha IS coverage, so premultiply — the
   // opposite convention from the emissive orbs (see shdr-31).
-  float a = mask;
-  gl_FragColor = vec4(max(col, vec3(0.0)) * a, a);
+  gl_FragColor = vec4(col * mask + glow, max(mask, glowA));
 }
 `;
 
@@ -232,7 +265,7 @@ export const shdr06Orb: OrbVariant = {
   params: [
     { key: "speed", label: "Anim speed", min: 0.015, max: 10, step: 0.05, default: 0.5, integrate: true },
     { key: "drift", label: "Layer walk", min: 0, max: 0.3, step: 0.002, default: 0.02 },
-    { key: "radius", label: "Radius", min: 0.15, max: 3, step: 0.015, default: 0.9 },
+    { key: "radius", label: "Radius", min: 0.15, max: 3, step: 0.015, default: 0.8 },
     { key: "scale", label: "Pattern scale", min: 0.3, max: 20, step: 0.1, default: 4 },
     { key: "bulge", label: "Dome bulge", min: 0, max: 4, step: 0.02, default: 0.3 },
     { key: "depth", label: "Stack depth", min: 0, max: 1.6, step: 0.01, default: 0.7 },
@@ -243,7 +276,12 @@ export const shdr06Orb: OrbVariant = {
     { key: "contrast", label: "Contrast", min: 0.15, max: 10, step: 0.05, default: 1.1 },
     { key: "saturation", label: "Saturation", min: 0, max: 4, step: 0.02, default: 1.2 },
     { key: "light", label: "Key light", min: 0, max: 3, step: 0.015, default: 0.45 },
-    { key: "rim", label: "Rim sheen", min: 0, max: 3, step: 0.015, default: 0.4 }
+    { key: "rim", label: "Rim sheen", min: 0, max: 3, step: 0.015, default: 0.4 },
+    { key: "organic", label: "Rim wander", min: 0, max: 0.15, step: 0.005, default: 0.04 },
+    { key: "edgeSoft", label: "Rim feather", min: 0, max: 0.2, step: 0.005, default: 0.035 },
+    { key: "bleed", label: "Energy bleed", min: 0, max: 3, step: 0.01, default: 0.9 },
+    { key: "reach", label: "Bleed reach", min: 0.02, max: 0.5, step: 0.005, default: 0.1 },
+    { key: "edgeFlow", label: "Edge flow", min: 0, max: 3, step: 0.01, default: 0.35, integrate: true }
   ],
   colors: [
     { key: "tint", label: "Tint", default: "#ffffff" },
@@ -273,7 +311,11 @@ export const shdr06Orb: OrbVariant = {
       glowSize: 0.05,
       hueRate: 0.037,
       exposure: 4,
-      contrast: 1.1
+      contrast: 1.1,
+      organic: 0.03,
+      bleed: 0.7,
+      reach: 0.08,
+      edgeFlow: 0.3
     },
     /*
       searching: quick and granular. The clock runs over five times resting
@@ -297,7 +339,11 @@ export const shdr06Orb: OrbVariant = {
       glowSize: 0.016,
       hueRate: 0.095,
       exposure: 6.5,
-      contrast: 1.55
+      contrast: 1.55,
+      organic: 0.045,
+      bleed: 0.9,
+      reach: 0.1,
+      edgeFlow: 0.8
     },
     /*
       answering: the fastest clock of the three and the widest walk, but on
@@ -320,7 +366,11 @@ export const shdr06Orb: OrbVariant = {
       hueRate: 0.045,
       exposure: 2.7,
       contrast: 0.9,
-      light: 1.11
+      light: 1.11,
+      organic: 0.06,
+      bleed: 1.3,
+      reach: 0.13,
+      edgeFlow: 1.1
     }
   },
   // the layer ramp supplies its own rainbow, so the tint only shifts its

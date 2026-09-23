@@ -168,22 +168,55 @@ vec3 dispersionRender(vec2 fragCoord) {
   return acc;
 }
 
-void main() {
-  dispersionTurb = uP_turb * (1.0 + 0.5 * uInput);
-  dispersionExposure = uP_exposure * (1.0 - 0.35 * uOutput);
-
+vec3 dispersionAt(vec2 fc) {
   vec3 acc = vec3(0.0);
 #if AA > 1
   for (int mx = 0; mx < AA; mx++) {
     for (int my = 0; my < AA; my++) {
       vec2 offset = vec2(float(mx), float(my)) / float(AA) - 0.5;
-      acc += dispersionRender(gl_FragCoord.xy + offset);
+      acc += dispersionRender(fc + offset);
     }
   }
   acc /= float(AA * AA);
 #else
-  acc = dispersionRender(gl_FragCoord.xy);
+  acc = dispersionRender(fc);
 #endif
+  return acc;
+}
+
+// The rim point below uv, turned by ang about the centre.
+vec2 edgeTap(vec2 uv, float R, float ang) {
+  vec2 q = orbRimUV(uv, R);
+  float c = cos(ang);
+  float s = sin(ang);
+  return vec2(q.x * c - q.y * s, q.x * s + q.y * c);
+}
+
+void main() {
+  dispersionTurb = uP_turb * (1.0 + 0.5 * uInput);
+  dispersionExposure = uP_exposure * (1.0 - 0.35 * uOutput);
+
+  /*
+    Organic edge. The silhouette used to be an exact analytic cut, which is
+    what read as a circle stamp. The shell radius in world units projects to
+    a screen radius R (closest approach == envRadius, solved for the pixel),
+    and the cut is now orbOrganicMask on that R: the rim wanders and
+    feathers. Pixels past the true limb sample the ray that grazes the limb
+    just below them, so the lumps and the bleed carry the shell's real
+    glowing edge colour rather than black. A rim sample is constant along
+    the radius, so the shell's fine striations would smear into radial
+    spikes: out there the colour is averaged over rim taps whose angular
+    spread widens with distance, blurring it into soft wisps.
+  */
+  vec2 uv = orbUV();
+  float R = uP_focal * uP_envRadius / sqrt(max(uP_camDist * uP_camDist - uP_envRadius * uP_envRadius, 1e-4));
+
+  vec3 acc = dispersionAt(orbFragCoord(orbRimUV(uv, R)));
+  float spread = 2.5 * max(length(uv) - 0.96 * R, 0.0) / R;
+  if (spread > 0.0) {
+    acc = acc * 0.4 + 0.3 * (dispersionAt(orbFragCoord(edgeTap(uv, R, spread)))
+                           + dispersionAt(orbFragCoord(edgeTap(uv, R, -spread))));
+  }
 
   // tanh tone map, as in the original but per channel and with a tunable
   // knee — the envelope and transmittance change the accumulator's scale
@@ -202,25 +235,25 @@ void main() {
   float a = clamp(peak * uP_alphaGain, 0.0, 1.0);
 
   /*
-    Analytic silhouette: the perpendicular distance from the sphere's centre
-    to this pixel's ray, against the shell radius. Exact — not a fade of the
-    accumulated glow — which is what makes the edge read as cut glass.
-    uP_edge trades the transition band: 1 is a couple of pixels, 0 falls
-    back to a soft feather. Colour AND alpha, as always.
+    uP_edge still trades the transition band: 1 leaves only the rim feather,
+    0 falls back to the old wide soft fade. Colour AND alpha, as always.
   */
-  vec3 mrd = normalize(vec3(orbUV(), -uP_focal));
-  float closest = length(cross(vec3(0.0, 0.0, uP_camDist), mrd));
-  float band = mix(0.35, 0.012, clamp(uP_edge, 0.0, 1.0));
-  float mask = 1.0 - smoothstep(uP_envRadius * (1.0 - band), uP_envRadius * 1.005, closest);
-  col *= mask;
-  a *= mask;
+  float soft = uP_edgeSoft + (1.0 - clamp(uP_edge, 0.0, 1.0)) * 0.175;
+  float mask = orbOrganicMask(uv, R, uP_organic, soft, uP_edgeFlow);
+
+  // Energy creeping off the shell in tendrils, in the rim's own dispersed
+  // colour; it swells with the agent's voice.
+  float bleed = orbBleed(uv, R, uP_reach, uP_edgeFlow) * uP_bleed * (0.7 + 0.6 * uOutput);
+  vec3 glow = col * (0.6 + 0.4 * a) * bleed * (1.0 - mask);
+  float glowA = clamp(max(glow.r, max(glow.g, glow.b)), 0.0, 1.0);
+
+  col = col * mask + glow;
+  a = max(a * mask, glowA);
 
   // Fade colour as well as alpha — with premultiplied output, fading only
   // alpha leaves the pixel emitting at full brightness up to the cutoff,
-  // which reads as a hard rim. With the analytic mask doing the real work
-  // this is only a safety taper at the frame boundary.
-  float r2d = length(orbUV());
-  float fade = 1.0 - smoothstep(uP_edgeFade, 1.0, r2d);
+  // which reads as a hard rim. Only a safety taper at the frame boundary.
+  float fade = 1.0 - smoothstep(uP_edgeFade, 1.0, length(uv));
   col *= fade;
   a *= fade;
 
@@ -239,7 +272,7 @@ export const shdr01Orb: OrbVariant = {
     { key: "speed", label: "Anim speed", min: 0.015, max: 10, step: 0.05, default: 0.5, integrate: true },
     { key: "spin", label: "Spin rate", min: 0, max: 5, step: 0.03, default: 0.25, integrate: true },
     { key: "camDist", label: "Camera distance", min: 1, max: 50, step: 0.3, default: 7 },
-    { key: "focal", label: "Lens", min: 0.15, max: 15, step: 0.1, default: 2.25 },
+    { key: "focal", label: "Lens", min: 0.15, max: 15, step: 0.05, default: 2 },
     { key: "tilt", label: "Field tilt", min: 0, max: 4, step: 0.02, default: 0.5 },
     { key: "turb", label: "Turbulence", min: 0, max: 5, step: 0.03, default: 0.3 },
     { key: "sheets", label: "Sheet density", min: 1, max: 60, step: 0.5, default: 7 },
@@ -255,7 +288,12 @@ export const shdr01Orb: OrbVariant = {
     { key: "saturation", label: "Saturation", min: 0, max: 4, step: 0.02, default: 1 },
     { key: "alphaGain", label: "Alpha gain", min: 0.05, max: 15, step: 0.1, default: 2 },
     { key: "edge", label: "Edge sharpness", min: 0, max: 1, step: 0.01, default: 1 },
-    { key: "edgeFade", label: "Halo falloff", min: 0.1, max: 3, step: 0.015, default: 0.98 }
+    { key: "edgeFade", label: "Halo falloff", min: 0.1, max: 3, step: 0.015, default: 0.98 },
+    { key: "organic", label: "Rim wander", min: 0, max: 0.15, step: 0.005, default: 0.04 },
+    { key: "edgeSoft", label: "Rim feather", min: 0, max: 0.2, step: 0.005, default: 0.035 },
+    { key: "bleed", label: "Energy bleed", min: 0, max: 3, step: 0.01, default: 0.9 },
+    { key: "reach", label: "Bleed reach", min: 0.02, max: 0.5, step: 0.005, default: 0.1 },
+    { key: "edgeFlow", label: "Edge flow", min: 0, max: 3, step: 0.01, default: 0.35, integrate: true }
   ],
   colors: [{ key: "tint", label: "Tint", default: "#ffffff" }],
   statePresets: {
@@ -267,7 +305,11 @@ export const shdr01Orb: OrbVariant = {
       sheets: 7,
       exposure: 60,
       scatter: 0.02,
-      alphaGain: 2
+      alphaGain: 2,
+      organic: 0.03,
+      bleed: 0.7,
+      reach: 0.08,
+      edgeFlow: 0.3
     },
     thinking: {
       speed: 0.6,
@@ -277,7 +319,11 @@ export const shdr01Orb: OrbVariant = {
       sheets: 7,
       exposure: 57,
       scatter: 0.019,
-      alphaGain: 2.1
+      alphaGain: 2.1,
+      organic: 0.045,
+      bleed: 0.9,
+      reach: 0.1,
+      edgeFlow: 0.75
     },
     // loudest: fast drift, dense sheets, wide rainbow
     speaking: {
@@ -288,7 +334,11 @@ export const shdr01Orb: OrbVariant = {
       sheets: 5.5,
       exposure: 45,
       scatter: 0.015,
-      alphaGain: 2.5
+      alphaGain: 2.5,
+      organic: 0.06,
+      bleed: 1.3,
+      reach: 0.13,
+      edgeFlow: 1.1
     }
   }
 };
