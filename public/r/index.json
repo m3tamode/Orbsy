@@ -953,6 +953,214 @@
     "url": "/r/orbsy-10.json"
   },
   {
+    "name": "orbsy-11",
+    "type": "registry:ui",
+    "title": "ORBSY-11",
+    "description": "Terminal. ASCII glyph matrix on the sphere with streaking rows and a full CRT.",
+    "dependencies": [],
+    "registryDependencies": [],
+    "files": [
+      {
+        "path": "public/r/components/ui/orbkit-core.tsx",
+        "type": "registry:ui",
+        "target": "components/ui/orbkit-core.tsx"
+      },
+      {
+        "path": "public/r/components/ui/orbsy-glsl.ts",
+        "type": "registry:ui",
+        "target": "components/ui/orbsy-glsl.ts"
+      },
+      {
+        "path": "public/r/components/ui/orbsy-11.tsx",
+        "type": "registry:ui",
+        "target": "components/ui/orbsy-11.tsx"
+      }
+    ],
+    "url": "/r/orbsy-11.json"
+  },
+  {
+    "name": "orbsy-12",
+    "type": "registry:ui",
+    "title": "ORBSY-12",
+    "description": "Dither Globe. A lit sphere rendered as ASCII density glyphs over an ordered dither.",
+    "dependencies": [],
+    "registryDependencies": [],
+    "files": [
+      {
+        "path": "public/r/components/ui/orbkit-core.tsx",
+        "type": "registry:ui",
+        "target": "components/ui/orbkit-core.tsx"
+      },
+      {
+        "path": "public/r/components/ui/orbsy-glsl.ts",
+        "type": "registry:ui",
+        "target": "components/ui/orbsy-glsl.ts"
+      },
+      {
+        "path": "public/r/components/ui/orbsy-12.tsx",
+        "type": "registry:ui",
+        "target": "components/ui/orbsy-12.tsx"
+      }
+    ],
+    "url": "/r/orbsy-12.json"
+  },
+  {
+    "name": "orbsy-13",
+    "type": "registry:ui",
+    "title": "ORBSY-13",
+    "description": "Quadtree. A recursive grid on the sphere's cube faces, big tiles where energy runs high.",
+    "dependencies": [],
+    "registryDependencies": [],
+    "files": [
+      {
+        "path": "public/r/components/ui/orbkit-core.tsx",
+        "type": "registry:ui",
+        "target": "components/ui/orbkit-core.tsx"
+      },
+      {
+        "path": "public/r/components/ui/orbsy-glsl.ts",
+        "type": "registry:ui",
+        "target": "components/ui/orbsy-glsl.ts"
+      },
+      {
+        "path": "public/r/components/ui/orbsy-13.tsx",
+        "type": "registry:ui",
+        "target": "components/ui/orbsy-13.tsx"
+      }
+    ],
+    "url": "/r/orbsy-13.json"
+  },
+  {
+    "name": "orbsy-14",
+    "type": "registry:ui",
+    "title": "ORBSY-14",
+    "description": "Mondrian. Recursive Mondrian splits wrapped on the sphere, re-splitting over time.",
+    "dependencies": [],
+    "registryDependencies": [],
+    "files": [
+      {
+        "path": "public/r/components/ui/orbkit-core.tsx",
+        "type": "registry:ui",
+        "target": "components/ui/orbkit-core.tsx"
+      },
+      {
+        "path": "public/r/components/ui/orbsy-glsl.ts",
+        "type": "registry:ui",
+        "target": "components/ui/orbsy-glsl.ts"
+      },
+      {
+        "path": "public/r/components/ui/orbsy-14.tsx",
+        "type": "registry:ui",
+        "target": "components/ui/orbsy-14.tsx"
+      }
+    ],
+    "url": "/r/orbsy-14.json"
+  },
+  {
+    "name": "orbsy-15",
+    "type": "registry:ui",
+    "title": "ORBSY-15",
+    "description": "Glitch Blocks. Stretched rectangles sliding around the sphere, dithered, on a CRT.",
+    "dependencies": [],
+    "registryDependencies": [],
+    "files": [
+      {
+        "path": "public/r/components/ui/orbkit-core.tsx",
+        "type": "registry:ui",
+        "target": "components/ui/orbkit-core.tsx"
+      },
+      {
+        "path": "public/r/components/ui/orbsy-glsl.ts",
+        "type": "registry:ui",
+        "target": "components/ui/orbsy-glsl.ts"
+      },
+      {
+        "path": "public/r/components/ui/orbsy-15.tsx",
+        "type": "registry:ui",
+        "target": "components/ui/orbsy-15.tsx"
+      }
+    ],
+    "url": "/r/orbsy-15.json"
+  },
+  {
+    "name": "orbsy-16",
+    "type": "registry:ui",
+    "title": "ORBSY-16",
+    "description": "Green Galaxy. A fluoro-green galaxy with a white-hot core and spilling arm gas.",
+    "dependencies": [],
+    "registryDependencies": [],
+    "files": [
+      {
+        "path": "public/r/components/ui/orbkit-core.tsx",
+        "type": "registry:ui",
+        "target": "components/ui/orbkit-core.tsx"
+      },
+      {
+        "path": "public/r/components/ui/orbsy-glsl.ts",
+        "type": "registry:ui",
+        "target": "components/ui/orbsy-glsl.ts"
+      },
+      {
+        "path": "public/r/components/ui/orbsy-16.tsx",
+        "type": "registry:ui",
+        "target": "components/ui/orbsy-16.tsx"
+      }
+    ],
+    "url": "/r/orbsy-16.json"
+  },
+  {
+    "name": "orbsy-17",
+    "type": "registry:ui",
+    "title": "ORBSY-17",
+    "description": "Radar Topo. Green contours lit by a rotating radar sweep with phosphor persistence.",
+    "dependencies": [],
+    "registryDependencies": [],
+    "files": [
+      {
+        "path": "public/r/components/ui/orbkit-core.tsx",
+        "type": "registry:ui",
+        "target": "components/ui/orbkit-core.tsx"
+      },
+      {
+        "path": "public/r/components/ui/orbsy-glsl.ts",
+        "type": "registry:ui",
+        "target": "components/ui/orbsy-glsl.ts"
+      },
+      {
+        "path": "public/r/components/ui/orbsy-17.tsx",
+        "type": "registry:ui",
+        "target": "components/ui/orbsy-17.tsx"
+      }
+    ],
+    "url": "/r/orbsy-17.json"
+  },
+  {
+    "name": "orbsy-18",
+    "type": "registry:ui",
+    "title": "ORBSY-18",
+    "description": "Toxic Nebula. Green gas that quantizes into dithered blocks toward its escaping edge.",
+    "dependencies": [],
+    "registryDependencies": [],
+    "files": [
+      {
+        "path": "public/r/components/ui/orbkit-core.tsx",
+        "type": "registry:ui",
+        "target": "components/ui/orbkit-core.tsx"
+      },
+      {
+        "path": "public/r/components/ui/orbsy-glsl.ts",
+        "type": "registry:ui",
+        "target": "components/ui/orbsy-glsl.ts"
+      },
+      {
+        "path": "public/r/components/ui/orbsy-18.tsx",
+        "type": "registry:ui",
+        "target": "components/ui/orbsy-18.tsx"
+      }
+    ],
+    "url": "/r/orbsy-18.json"
+  },
+  {
     "name": "all",
     "type": "registry:ui",
     "title": "All Orbsy Orbs",
@@ -1184,6 +1392,46 @@
         "path": "public/r/components/ui/orbsy-10.tsx",
         "type": "registry:ui",
         "target": "components/ui/orbsy-10.tsx"
+      },
+      {
+        "path": "public/r/components/ui/orbsy-11.tsx",
+        "type": "registry:ui",
+        "target": "components/ui/orbsy-11.tsx"
+      },
+      {
+        "path": "public/r/components/ui/orbsy-12.tsx",
+        "type": "registry:ui",
+        "target": "components/ui/orbsy-12.tsx"
+      },
+      {
+        "path": "public/r/components/ui/orbsy-13.tsx",
+        "type": "registry:ui",
+        "target": "components/ui/orbsy-13.tsx"
+      },
+      {
+        "path": "public/r/components/ui/orbsy-14.tsx",
+        "type": "registry:ui",
+        "target": "components/ui/orbsy-14.tsx"
+      },
+      {
+        "path": "public/r/components/ui/orbsy-15.tsx",
+        "type": "registry:ui",
+        "target": "components/ui/orbsy-15.tsx"
+      },
+      {
+        "path": "public/r/components/ui/orbsy-16.tsx",
+        "type": "registry:ui",
+        "target": "components/ui/orbsy-16.tsx"
+      },
+      {
+        "path": "public/r/components/ui/orbsy-17.tsx",
+        "type": "registry:ui",
+        "target": "components/ui/orbsy-17.tsx"
+      },
+      {
+        "path": "public/r/components/ui/orbsy-18.tsx",
+        "type": "registry:ui",
+        "target": "components/ui/orbsy-18.tsx"
       }
     ],
     "url": "/r/all.json"
