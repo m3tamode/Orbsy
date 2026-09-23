@@ -67,6 +67,13 @@ import { ShaderOrb, type OrbVariant, type ShaderOrbProps } from "../core/orbkit-
      are UNDEFINED in GLSL ES 1.0, explicit here.
    - Surface-lit and mask-bounded, so alpha IS coverage — premultiplied
      output, as in shdr-17.
+   - THE EDGE IS NOT A CUT. The field is defined past the dome too (the
+     projection just flattens there), so the silhouette wanders and
+     feathers, and the creases themselves are drawn on out past the rim
+     as bare filigree with no body under it, faded by a tendril falloff
+     (spill) — the folds escape the ball rather than a glow painted round
+     it. A thin tendril glow in the ball's own rim colour (bleed) sits
+     under that. spill 0, wander 0 and bleed 0 give back the hard ball.
 ---------------------------------------------------------------------------- */
 
 /*
@@ -119,7 +126,11 @@ vec2 creaseField(vec2 fragCoord, float t, float drift, float sw) {
   return p;
 }
 
-vec3 creaseRender(vec2 fragCoord) {
+/*
+  The creases alone, per channel, before any body or lighting: what is left
+  of the orb once it runs out past the rim.
+*/
+vec3 creaseLines(vec2 fragCoord) {
   float t = uP_speed;      // integrated clock: the boil
   float drift = uP_drift;  // integrated clock: the slow travel
   float sw = uP_swirl;     // integrated clock
@@ -153,9 +164,11 @@ vec3 creaseRender(vec2 fragCoord) {
     else e.b = m;
   }
 
-  e = pow(clamp(e, 0.0, 1.0), vec3(uP_contrast));
+  return pow(clamp(e, 0.0, 1.0), vec3(uP_contrast));
+}
 
-  vec3 col = uC_tint * e;
+vec3 creaseRender(vec2 fragCoord) {
+  vec3 col = uC_tint * creaseLines(fragCoord);
 
   // a dark body under the filigree, so the flat regions read as the ball
   col += uC_body * uP_floorLevel;
@@ -184,32 +197,67 @@ void main() {
   creaseGain = uP_edgeGain * (1.0 + 0.5 * uOutput);
 
   vec2 uv = orbUV();
-  float mask = smoothstep(0.012, -0.012, length(uv) - max(uP_radius, 0.001));
+  float R = max(uP_radius, 0.001);
+  float r = length(uv);
+  // organic silhouette: the rim wanders and feathers instead of a hard cut
+  float mask = orbOrganicMask(uv, R, uP_organic, uP_edgeSoft, uP_edgeFlow);
 
-  // Twenty-four warp steps per sample — none of them worth paying for
-  // outside the silhouette.
-  if (mask <= 0.0) {
+  // Past the rim only the spill and the bleed can light; beyond their reach
+  // (or the frame) none of the warp steps are worth paying for.
+  bool far = (r - R) / R > 7.0 * max(max(uP_spill, uP_reach), 0.02);
+  float outside = 1.0 - mask;
+  if (mask <= 0.0 && (far || r >= 1.0)) {
     gl_FragColor = vec4(0.0);
     return;
   }
 
+  // Past the true radius the ball's colour comes from the rim just below,
+  // so the wandering lumps and the bleed carry the orb's real edge colour.
   vec3 col = vec3(0.0);
+  if (r > R * 0.96) {
+    col = creaseRender(orbFragCoord(orbRimUV(uv, R)));
+  } else {
 #if AA > 1
-  for (int mx = 0; mx < AA; mx++) {
-    for (int my = 0; my < AA; my++) {
-      vec2 off = (vec2(float(mx), float(my)) + 0.5) / float(AA) - 0.5;
-      col += creaseRender(gl_FragCoord.xy + off);
+    for (int mx = 0; mx < AA; mx++) {
+      for (int my = 0; my < AA; my++) {
+        vec2 off = (vec2(float(mx), float(my)) + 0.5) / float(AA) - 0.5;
+        col += creaseRender(gl_FragCoord.xy + off);
+      }
     }
-  }
-  col /= float(AA * AA);
+    col /= float(AA * AA);
 #else
-  col = creaseRender(gl_FragCoord.xy);
+    col = creaseRender(gl_FragCoord.xy);
 #endif
+  }
+  col = max(col, vec3(0.0));
+
+  /*
+    The escaping folds: the crease field evaluated at the pixel itself past
+    the rim, lines only, so bright filigree runs on out of the ball and the
+    flat regions between stay clear. It varies in both directions, so it
+    never smears into radial rays the way a rim-sampled colour does.
+  */
+  vec3 escape = vec3(0.0);
+  if (outside > 0.0 && uP_spill > 0.0) {
+    // cubed, so only true creases escape: the soft broad slopes of a calm
+    // field would otherwise leave the ball as a uniform haze
+    vec3 e = creaseLines(gl_FragCoord.xy);
+    vec3 lines = uC_tint * e * e * e;
+    float sl = dot(lines, vec3(0.299, 0.587, 0.114));
+    lines = max(mix(vec3(sl), lines, uP_saturation), vec3(0.0));
+    float sf = orbBleed(uv, R, uP_spill * (0.8 + 0.5 * uOutput), uP_edgeFlow + 3.7);
+    escape = lines * sf * outside;
+  }
+
+  // a thin tendril glow in the rim colour, swelling with the voice
+  float bl = orbBleed(uv, R, uP_reach, uP_edgeFlow) * uP_bleed * (0.7 + 0.6 * uOutput);
+  vec3 glow = mix(uC_sheen, col, 0.5) * bl * outside + escape;
 
   // Surface orb bounded by a mask: alpha IS coverage, so premultiply — the
-  // opposite convention from the emissive orbs (see shdr-31).
-  float a = mask;
-  gl_FragColor = vec4(max(col, vec3(0.0)) * a, a);
+  // opposite convention from the emissive orbs (see shdr-31). What escapes
+  // is emitted light, alpha from its peak channel.
+  float a = max(mask, clamp(max(glow.r, max(glow.g, glow.b)), 0.0, 1.0));
+  gl_FragColor = vec4(col * mask + glow, a);
 }
 `;
 
@@ -222,7 +270,7 @@ export const shdr25Orb: OrbVariant = {
     { key: "speed", label: "Boil", min: 0.015, max: 20, step: 0.05, default: 3, integrate: true },
     { key: "drift", label: "Drift", min: 0, max: 8, step: 0.02, default: 0.6, integrate: true },
     { key: "swirl", label: "Swirl", min: 0, max: 3, step: 0.015, default: 0.05, integrate: true },
-    { key: "radius", label: "Radius", min: 0.15, max: 3, step: 0.015, default: 0.9 },
+    { key: "radius", label: "Radius", min: 0.15, max: 3, step: 0.015, default: 0.8 },
     { key: "scale", label: "Cell scale", min: 0.3, max: 60, step: 0.1, default: 7.5 },
     { key: "bulge", label: "Dome bulge", min: 0, max: 4, step: 0.02, default: 0.3 },
     { key: "warp", label: "Fold", min: 0, max: 2, step: 0.01, default: 0.4 },
@@ -236,7 +284,13 @@ export const shdr25Orb: OrbVariant = {
     { key: "saturation", label: "Saturation", min: 0, max: 4, step: 0.02, default: 1.5 },
     { key: "floorLevel", label: "Body fill", min: 0, max: 2, step: 0.01, default: 0.16 },
     { key: "light", label: "Key light", min: 0, max: 3, step: 0.015, default: 0.35 },
-    { key: "rim", label: "Rim sheen", min: 0, max: 3, step: 0.015, default: 0.45 }
+    { key: "rim", label: "Rim sheen", min: 0, max: 3, step: 0.015, default: 0.45 },
+    { key: "spill", label: "Crease spill", min: 0, max: 0.5, step: 0.005, default: 0.1 },
+    { key: "organic", label: "Rim wander", min: 0, max: 0.15, step: 0.005, default: 0.04 },
+    { key: "edgeSoft", label: "Rim feather", min: 0, max: 0.2, step: 0.005, default: 0.03 },
+    { key: "bleed", label: "Energy bleed", min: 0, max: 3, step: 0.01, default: 0.3 },
+    { key: "reach", label: "Bleed reach", min: 0.02, max: 0.5, step: 0.005, default: 0.07 },
+    { key: "edgeFlow", label: "Edge flow", min: 0, max: 3, step: 0.01, default: 0.35, integrate: true }
   ],
   colors: [
     { key: "tint", label: "Rim", default: "#dbe8f7" },
@@ -262,7 +316,13 @@ export const shdr25Orb: OrbVariant = {
       zoom: 1.07,
       edgeGain: 12.5,
       exposure: 0.8,
-      contrast: 1.15
+      contrast: 1.15,
+      spill: 0.08,
+      organic: 0.03,
+      edgeSoft: 0.03,
+      bleed: 0.25,
+      reach: 0.06,
+      edgeFlow: 0.3
     },
     /*
       searching: the folds RELAX a touch below idle, but the edge gain
@@ -287,7 +347,13 @@ export const shdr25Orb: OrbVariant = {
       contrast: 1.5,
       saturation: 2,
       light: 0.525,
-      rim: 0.69
+      rim: 0.69,
+      spill: 0.1,
+      organic: 0.045,
+      edgeSoft: 0.03,
+      bleed: 0.3,
+      reach: 0.07,
+      edgeFlow: 0.9
     },
     /*
       answering: the field FOLDS hardest of the three and the gain drops to
@@ -310,7 +376,13 @@ export const shdr25Orb: OrbVariant = {
       blur: 2,
       fringe: 0.23,
       exposure: 2.35,
-      contrast: 1.35
+      contrast: 1.35,
+      spill: 0.16,
+      organic: 0.06,
+      edgeSoft: 0.035,
+      bleed: 0.5,
+      reach: 0.08,
+      edgeFlow: 1.1
     }
   },
   // cool steel at rest, cold indigo for both working states — the answer
