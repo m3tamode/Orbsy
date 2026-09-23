@@ -1,5 +1,5 @@
 /*
- * Orbsy 12 — Dither Globe. Original shader, MIT.
+ * Orbsy 12 — Pixel Sort. Original shader, MIT.
  * Not a "use client" module, so server components can read the variant as data.
  * The shader lives in a template literal: its comments must not contain backticks.
  */
@@ -7,160 +7,199 @@ import { ShaderOrb, type OrbVariant, type ShaderOrbProps } from "../core/orbkit-
 import { ORBSY_GLSL } from "./orbsy-glsl";
 
 /*
-  A lit globe printed in glyphs. The ball is shaded once per screen cell:
-  key light times a longitude-stretched 3D fbm, so the surface carries
-  horizontal noise streaks that roll with the spin. That tone is quantized to
-  the eight-step ASCII ramp with an 8x8 Bayer threshold across cells, so
-  neighbouring cells alternate glyphs where the tone falls between steps, and
-  each glyph is drawn as stacked horizontal strokes (the gaps between its
-  bit rows are cut away), like reference 3.
+  Pixel sorting wrapped round a turning ball. The sphere is cut into
+  longitude columns. Down each column a scrolling 1D field is split into
+  slots; wherever the slot's field value clears a threshold, a run of
+  "sorted" pixels fills part of the slot: a smooth, stepped gradient from a
+  hard white-hot head at the bottom to a dithered tail above, as if the
+  column's bright pixels had been sorted and dripped downward along the
+  surface. The field scrolls down each column at its own speed, and both
+  the threshold and the run length breathe on a clock, so runs keep
+  re-triggering, stretching and dying off.
 
-  In between the glyphs a much finer pixel-pitch Bayer dither carries the
-  same tone as dim dots, so the dark side still reads as a halftoned ball.
-  The lit side burns white-hot through orbsyFluoro, the shadow side is deep
-  green. A smooth glow of the light field fakes the bloom, and past the rim
-  the bleed is itself dithered into sparse dots. Thinking sweeps a bright
-  scan band across the latitudes; speaking lifts the light with the voice.
+  Under the sorts sits a dark green base texture: 3D fbm on the ball, Bayer
+  dithered at 2px. Each head carries a soft vertical flare as bloom. A light
+  CRT (scanlines, phosphor mask, roll bar) sits on top. Past the rim, the
+  hottest columns drip on as screen-space streaks, gated by edge noise and
+  by how bright the sorts are at the edge.
 */
-const DITHER_FRAG =
+const PIXEL_SORT_FRAG =
   ORBSY_GLSL +
   `
+// One column of sorted runs. y is the column coordinate in [0,1] (0 at the
+// bottom), col the column id, seed a layer id, ey one screen pixel in y.
+// Returns (sorted fill, head, soft flare, base mask for dither).
+vec4 sortColumn(float y, float col, float seed, float ey) {
+  float h1 = hash31(vec3(col, seed, 1.3));
+  float h2 = hash31(vec3(col, seed, 2.7));
+  float slots = floor(mix(2.0, 5.0, h1));
+  // runs drip downward: the scroll clock only translates the column
+  float s = (y + fract(uP_drip * mix(0.05, 0.16, h2) + h1)) * slots;
+  float slot = floor(s);
+  float fy = fract(s);
+  float epoch = floor(uP_drip * 0.4 + h2 * 7.0 + slot * 0.37);
+  vec3 cid = vec3(col * 7.0 + slot, seed * 3.0 + epoch, seed);
+
+  // the underlying field and its breathing threshold
+  float f = hash31(cid) * 0.6 + 0.4 * noise3(vec3(col * 0.37, slot * 0.5, seed * 5.0 + uP_pulse * 0.3));
+  float thr = uP_threshold + 0.14 * sin(uP_pulse + col * 0.21 + seed * 2.0) - 0.12 * uOutput;
+  float on = step(thr, f);
+  float over = clamp((f - thr) / max(1.0 - thr, 0.05), 0.0, 1.0);
+  float len = clamp(mix(0.25, 1.0, over) * uP_runLen * (0.8 + 0.25 * sin(uP_pulse * 1.3 + col)), 0.08, 0.98);
+  float start = hash31(cid + 5.0) * (1.0 - len);
+
+  float u = (fy - start) / len; // 0 at the head (bottom), 1 at the tail
+  float inRun = step(0.0, u) * step(u, 1.0) * on;
+  // sorted gradient, stepped like quantized pixel values
+  float g = 1.0 - clamp(u, 0.0, 1.0);
+  g = floor(g * uP_steps + 0.5) / uP_steps;
+  float fill = g * g * (0.5 + 0.5 * over) * inRun;
+
+  float headW = max(ey * slots * 3.0, 0.015);
+  float dh = (fy - start) / headW;
+  float head = (1.0 - smoothstep(0.0, 1.0, abs(dh - 0.5) * 2.0 - 0.2)) * on;
+  float flare = exp(-abs(fy - start) / (0.025 * len + 0.01)) * on * (0.4 + over);
+  return vec4(fill, head * (0.6 + 0.6 * over), flare, inRun);
+}
+
 void main() {
   vec2 uv = orbUV();
   float px = orbsyPx();
-  float R = uP_radius * (1.0 + 0.035 * uOutput);
+  float R = uP_radius * (1.0 + 0.03 * uOutput);
   float r = length(uv);
-  vec2 fc = gl_FragCoord.xy;
+  vec2 fc = orbFragCoord(uv);
 
-  // Resolution-relative cells, wider than tall so glyphs read as strokes.
-  float cw = max(min(uRes.x, uRes.y) / uP_cells, 4.0);
-  vec2 cellSize = vec2(cw, cw * uP_aspect);
-  vec2 cellIdx = floor(fc / cellSize);
-  vec2 cellFc = (cellIdx + 0.5) * cellSize;
-  vec2 cuv = (2.0 * cellFc - uRes) / min(uRes.x, uRes.y);
-  vec2 p = fract(fc / cellSize) * 2.0 - 1.0;
-
-  // Shade the ball at the cell centre.
-  float cmask = orbOrganicMask(cuv, R, uP_organic, uP_edgeSoft, uP_edgeFlow);
-  vec4 s = orbsySphere(orbRimUV(cuv, R), R, px);
-  vec3 n = s.xyz;
-  vec3 nr = n;
-  nr.xz = orbsyRot(uP_spin) * nr.xz;
-  vec3 q = vec3(nr.x, nr.y * uP_stretch, nr.z) * uP_scale;
-  float streak = fbm3(q + vec3(0.0, 0.0, uP_speed * 0.4));
-  streak = smoothstep(0.25, 0.8, streak);
-
-  vec3 L = normalize(vec3(-0.5, 0.45, 0.74));
-  float lam = clamp(dot(n, L), 0.0, 1.0);
-  float light = uP_light * (0.85 + 0.6 * uOutput);
-  float scan = exp(-pow((n.y - 0.85 * sin(uP_scanRate)) * 7.0, 2.0)) * uP_scan;
-  float limb = 1.0 - n.z;
-  float tone = lam * light * (0.2 + 1.1 * streak) + 0.08 * streak + scan * (0.4 + 0.6 * streak)
-    + limb * limb * uP_rim * 0.5 + 0.12 * uInput;
-  tone = clamp(tone, 0.0, 1.2);
-
-  // Ordered dither across cells picks between neighbouring glyphs.
-  float lvl = floor(min(tone, 1.0) * 8.0 + orbsyBayer8(cellIdx)) / 8.0;
-  float glyph = orbsyAscii(lvl, p * 0.72);
-  // Horizontal strokes: cut the gaps between the glyph's bit rows.
-  float rowF = fract(p.y * 0.72 * 4.0 + 2.5);
-  glyph *= step(rowF, uP_stroke);
-
-  // Fine dither in the space between glyphs, at a few-pixel pitch.
-  float pitch = max(uP_pitch * min(uRes.x, uRes.y) / 280.0, 1.0);
-  // (the 1/128 offset keeps the zero Bayer cell dark at zero tone)
-  float fine = step(orbsyBayer8(fc / pitch) + 0.008, tone * 0.6) * (1.0 - glyph);
-
-  float e = glyph * (0.14 + lvl * lvl * 1.6 * uP_gain + max(tone - 1.0, 0.0) * 2.0)
-    + fine * (0.05 + 0.2 * tone) * uP_fine;
-  e *= step(0.5, cmask);
-
-  // Bloom: a smooth, cell-free glow of the light on the ball itself.
   float mask = orbOrganicMask(uv, R, uP_organic, uP_edgeSoft, uP_edgeFlow);
   vec4 sp = orbsySphere(orbRimUV(uv, R), R, px);
-  float glow = clamp(dot(sp.xyz, L), 0.0, 1.0);
-  e += (glow * glow * 0.12 * light + 0.03) * uP_bloom * mask;
+  vec3 n = sp.xyz;
+  n.yz = orbsyRot(0.18) * n.yz;
+  n.xz = orbsyRot(uP_spin) * n.xz;
 
-  // Gated so the canvas outside the ball stays truly black.
-  vec3 col = orbsyFluoro(e, uC_deep, uC_base, uC_hot) * smoothstep(0.0, 0.04, e);
+  float lon = atan(n.x, n.z) / TAU + 0.5;
+  float lat = asin(clamp(n.y, -1.0, 1.0)) / PI + 0.5;
+  float cl = max(sqrt(max(1.0 - n.y * n.y, 0.0)), 0.06);
+  float fz = max(sp.z, 0.1);
+  float ey = px / (PI * R * fz);
+  float ex = px / (TAU * R * cl * fz);
 
-  /*
-    Outside: the bleed dithered into dots on the same fine screen, broken up
-    by a 2D screen-space field so it reads as drifting dust, not rays, over a
-    soft halo that fakes the bloom spill.
-  */
-  float vol = uP_bleed * (0.7 + 0.6 * uOutput);
-  float bleed = orbBleed(uv, R, uP_reach, uP_edgeFlow) * vol;
-  float dustF = fbm(uv * 5.0 + vec2(0.0, uP_edgeFlow * 0.6));
-  float dust = step(orbsyBayer8(fc / pitch) + 0.008, bleed * (0.08 + 1.0 * smoothstep(0.4, 0.8, dustF)));
-  float halo = exp(-max(r - R, 0.0) / (0.07 * R)) * uP_bloom * 0.2 * (0.8 + 0.5 * uOutput);
-  col += orbsyFluoro(0.3 + 0.35 * min(bleed, 1.0), uC_deep, uC_base, uC_hot) * (dust * 0.45 + halo) * (1.0 - mask);
+  // columns with a thin dark gap between them
+  float cols = uP_columns;
+  float cx = lon * cols;
+  float col = floor(cx);
+  float fx = fract(cx);
+  float gw = min(ex * cols * 0.9, 0.3);
+  float colMask = smoothstep(0.0, gw, fx) * smoothstep(0.0, gw, 1.0 - fx);
+  float pole = smoothstep(0.1, 0.35, cl);
 
-  // Light CRT: scanlines only.
-  col *= orbsyScanline(fc, max(min(uRes.x, uRes.y) / 160.0, 2.0), uP_crt);
+  vec4 A = sortColumn(lat, col, 1.0, ey);
+  // a second, coarser layer on double-width columns
+  float col2 = floor(lon * cols * 0.5);
+  vec4 B = sortColumn(lat, col2 + 101.0, 2.0, ey);
 
-  col = orbsyBloomTone(col, uP_exposure * (0.9 + 0.3 * uOutput));
-  float a = clamp(max(col.r, max(col.g, col.b)) * 1.2, 0.0, 1.0);
-  gl_FragColor = vec4(col, a);
+  // base texture: dark dithered fbm on the ball
+  float bayer = orbsyBayer8(floor(fc * 0.5));
+  float tex = fbm3(n * uP_scale + vec3(0.0, uP_pulse * 0.05, 0.0));
+  float baseE = smoothstep(0.42, 0.78, tex) * uP_base;
+  float dotd = length(fract(fc / 3.0) - 0.5);
+  baseE = step(bayer, baseE * 1.3) * 0.38 * (1.0 - smoothstep(0.3, 0.5, dotd));
+
+  // tails of the sorts go to a dither as they fade
+  float fillA = A.x;
+  float dA = step(bayer, fillA * 1.6);
+  fillA = mix(fillA, max(fillA, 0.35 * dA * A.w), uP_dither) * mix(1.0, dA * 0.6 + 0.4, uP_dither * step(fillA, 0.45));
+  float fillB = B.x * 0.7;
+
+  float vol = uP_bright * (0.85 + 0.6 * uOutput);
+  float heads = max(A.y, B.y * 0.8);
+  float E = (max(fillA, fillB) * 1.1 + heads * uP_headHot) * colMask * pole;
+  E += baseE * pole * (1.0 - A.w);
+  float shade = mix(0.35, 1.0, sp.z);
+  E *= shade * vol;
+  vec3 colr = orbsyFluoro(E, uC_deep, uC_base, uC_hot) * step(0.004, E);
+  // bloom: a soft vertical flare round each head, spilling over the gaps
+  float flare = (A.z + 0.6 * B.z) * pole * shade;
+  colr += uC_base * flare * uP_bloom * 0.3 * vol + vec3(0.82, 1.0, 0.9) * heads * uP_bloom * 0.12 * pole * shade;
+  colr *= mask;
+
+  // Drips past the rim: screen-space columns, only where the edge sorts are hot.
+  float edgeHot = clamp(E + flare * 0.5, 0.0, 1.5);
+  float pf = mix(0.12, 1.0, smoothstep(0.38, 0.72, orbEdgeFbm(vec3(uv * 3.2, uP_edgeFlow * 0.45))));
+  float bl = orbBleed(uv, R, uP_reach, uP_edgeFlow) * uP_bleed * (0.7 + 0.6 * uOutput) * pf * edgeHot;
+  float sc = floor(uv.x / (px * 3.0));
+  float ch = hash31(vec3(sc, 4.0, 9.0));
+  float dr = fract(uv.y * mix(2.0, 5.0, ch) + uP_edgeFlow * mix(0.5, 1.2, ch) + ch);
+  float drip = dr * dr * step(0.45, ch);
+  float oe = bl * (drip * 1.3 + 0.06);
+  colr += orbsyFluoro(oe, uC_deep, uC_base, uC_hot) * min(oe * 2.0, 1.0) * (1.0 - mask);
+
+  // light CRT
+  colr *= orbsyScanline(fc, 3.0, 0.4 * uP_crt);
+  colr *= orbsyPhosphorMask(fc, 0.3 * uP_crt);
+  colr *= 1.0 + orbsyRollBar(uv, uP_drip) * 0.35 * uP_crt;
+
+  colr = orbsyBloomTone(colr, uP_exposure);
+  float a = clamp(max(colr.r, max(colr.g, colr.b)) * 1.2, 0.0, 1.0);
+  gl_FragColor = vec4(colr, a);
 }
 `;
 
 export const orbsy12Orb: OrbVariant = {
   key: "orbsy-12",
-  label: "Dither Globe",
-  note: "a lit, streaked globe printed as horizontal-stroke ASCII glyphs over a fine Bayer dither",
-  frag: DITHER_FRAG,
+  label: "Pixel Sort",
+  note: "pixel-sorted runs dripping down the longitude columns of a turning ball, white-hot heads over a dithered base, light CRT",
+  frag: PIXEL_SORT_FRAG,
   params: [
-    { key: "speed", label: "Streak flow", min: 0, max: 3, step: 0.01, default: 0.3, integrate: true },
+    { key: "drip", label: "Drip speed", min: 0, max: 4, step: 0.01, default: 0.6, integrate: true },
+    { key: "pulse", label: "Re-sort rate", min: 0, max: 3, step: 0.01, default: 0.4, integrate: true },
     { key: "spin", label: "Spin rate", min: 0, max: 2, step: 0.01, default: 0.1, integrate: true },
-    { key: "scanRate", label: "Scan rate", min: 0, max: 4, step: 0.01, default: 0.4, integrate: true },
-    { key: "radius", label: "Radius", min: 0.3, max: 1, step: 0.01, default: 0.78 },
-    { key: "cells", label: "Glyph columns", min: 16, max: 80, step: 1, default: 30 },
-    { key: "aspect", label: "Cell height", min: 0.5, max: 1.5, step: 0.01, default: 0.8 },
-    { key: "stroke", label: "Stroke weight", min: 0.2, max: 1, step: 0.01, default: 0.45 },
-    { key: "scale", label: "Streak scale", min: 0.5, max: 6, step: 0.05, default: 1.8 },
-    { key: "stretch", label: "Streak stretch", min: 1, max: 12, step: 0.1, default: 5.0 },
-    { key: "light", label: "Key light", min: 0, max: 2.5, step: 0.01, default: 1.2 },
-    { key: "gain", label: "Glyph gain", min: 0, max: 3, step: 0.01, default: 1.0 },
-    { key: "pitch", label: "Dither pitch", min: 1, max: 6, step: 0.1, default: 2.0 },
-    { key: "fine", label: "Fine dither", min: 0, max: 2, step: 0.01, default: 1.0 },
-    { key: "scan", label: "Scan band", min: 0, max: 1.5, step: 0.01, default: 0 },
-    { key: "rim", label: "Rim light", min: 0, max: 2, step: 0.01, default: 0.5 },
-    { key: "bloom", label: "Bloom", min: 0, max: 3, step: 0.01, default: 1.0 },
-    { key: "crt", label: "Scanlines", min: 0, max: 1, step: 0.01, default: 0.2 },
-    { key: "exposure", label: "Exposure", min: 0.3, max: 3, step: 0.01, default: 1.1 },
-    { key: "organic", label: "Rim wander", min: 0, max: 0.15, step: 0.005, default: 0.04 },
-    { key: "edgeSoft", label: "Rim feather", min: 0, max: 0.2, step: 0.005, default: 0.035 },
-    { key: "bleed", label: "Energy bleed", min: 0, max: 3, step: 0.01, default: 0.9 },
+    { key: "radius", label: "Radius", min: 0.3, max: 1, step: 0.01, default: 0.79 },
+    { key: "columns", label: "Columns", min: 16, max: 120, step: 1, default: 56 },
+    { key: "threshold", label: "Sort threshold", min: 0, max: 1, step: 0.01, default: 0.5 },
+    { key: "runLen", label: "Run length", min: 0.1, max: 1.2, step: 0.01, default: 0.75 },
+    { key: "steps", label: "Sort steps", min: 3, max: 24, step: 1, default: 10 },
+    { key: "headHot", label: "Head burn", min: 0, max: 3, step: 0.01, default: 1.6 },
+    { key: "dither", label: "Tail dither", min: 0, max: 1, step: 0.01, default: 0.7 },
+    { key: "base", label: "Base texture", min: 0, max: 1.5, step: 0.01, default: 0.7 },
+    { key: "scale", label: "Base scale", min: 0.5, max: 6, step: 0.05, default: 2.5 },
+    { key: "bright", label: "Brightness", min: 0.2, max: 3, step: 0.01, default: 1.1 },
+    { key: "bloom", label: "Bloom", min: 0, max: 2, step: 0.01, default: 0.8 },
+    { key: "crt", label: "CRT", min: 0, max: 1, step: 0.01, default: 0.5 },
+    { key: "exposure", label: "Exposure", min: 0.3, max: 3, step: 0.01, default: 1.0 },
+    { key: "organic", label: "Rim wander", min: 0, max: 0.15, step: 0.005, default: 0.035 },
+    { key: "edgeSoft", label: "Rim feather", min: 0, max: 0.2, step: 0.005, default: 0.03 },
+    { key: "bleed", label: "Energy bleed", min: 0, max: 3, step: 0.01, default: 1.0 },
     { key: "reach", label: "Bleed reach", min: 0.02, max: 0.5, step: 0.005, default: 0.12 },
     { key: "edgeFlow", label: "Edge flow", min: 0, max: 3, step: 0.01, default: 0.35, integrate: true }
   ],
   colors: [
-    { key: "deep", label: "Deep", default: "#010d04" },
-    { key: "base", label: "Fluoro", default: "#39ff14" },
-    { key: "hot", label: "Hot", default: "#d6ff5c" }
+    { key: "deep", label: "Deep", default: "#010f08" },
+    { key: "base", label: "Fluoro", default: "#1bd26a" },
+    { key: "hot", label: "Hot", default: "#8ff2b8" }
   ],
   statePresets: {
-    // a slow, calm globe: soft light, lazy streaks, no scan
+    // slow drips, few long sorts, calm re-sorting
     idle: {
-      speed: 0.2, spin: 0.08, scanRate: 0.3, cells: 30, light: 1.2, gain: 0.9,
-      scan: 0, bloom: 0.9, exposure: 1.0, organic: 0.035, bleed: 0.7, reach: 0.1, edgeFlow: 0.25
+      drip: 0.4, pulse: 0.25, spin: 0.08, columns: 48, threshold: 0.52, runLen: 0.85, steps: 10,
+      headHot: 1.4, dither: 0.7, base: 0.7, bright: 1.0, bloom: 0.7, crt: 0.45,
+      exposure: 1.0, organic: 0.03, bleed: 0.8, reach: 0.1, edgeFlow: 0.25
     },
-    // scanning: finer glyph grid, fast streaks, a bright band sweeping the latitudes
+    // busy: fine columns, short fast runs re-triggering everywhere
     thinking: {
-      speed: 0.8, spin: 0.35, scanRate: 1.6, cells: 38, light: 0.9, gain: 1.0,
-      scan: 0.9, bloom: 1.0, exposure: 1.1, organic: 0.045, bleed: 1.0, reach: 0.12, edgeFlow: 0.8
+      drip: 2.0, pulse: 1.6, spin: 0.25, columns: 84, threshold: 0.42, runLen: 0.45, steps: 6,
+      headHot: 1.6, dither: 0.85, base: 0.8, bright: 1.05, bloom: 0.7, crt: 0.65,
+      exposure: 1.05, organic: 0.045, bleed: 1.0, reach: 0.12, edgeFlow: 0.8
     },
-    // speaking: coarser, white-hot glyphs, heavy bloom, voice-driven light
+    // brightest: wide columns, long dense sorts flaring with the voice
     speaking: {
-      speed: 0.6, spin: 0.15, scanRate: 0.6, cells: 26, light: 1.3, gain: 1.2,
-      scan: 0.2, bloom: 1.5, exposure: 1.2, organic: 0.06, bleed: 1.5, reach: 0.15, edgeFlow: 1.1
+      drip: 1.1, pulse: 0.8, spin: 0.12, columns: 40, threshold: 0.36, runLen: 1.0, steps: 14,
+      headHot: 2.2, dither: 0.5, base: 0.9, bright: 1.35, bloom: 1.2, crt: 0.45,
+      exposure: 1.25, organic: 0.06, bleed: 1.5, reach: 0.15, edgeFlow: 1.1
     }
   },
   stateColors: {
-    idle: { deep: "#010d04", base: "#39ff14", hot: "#d6ff5c" },
-    thinking: { deep: "#010f07", base: "#2bff5a", hot: "#c4ffd0" },
-    speaking: { deep: "#031002", base: "#5cff1f", hot: "#eaff80" }
+    idle: { deep: "#010f08", base: "#1bd26a", hot: "#8ff2b8" },
+    thinking: { deep: "#010f09", base: "#17cf8c", hot: "#a4f5dc" },
+    speaking: { deep: "#02110b", base: "#2ee87c", hot: "#b6ffd2" }
   }
 };
 

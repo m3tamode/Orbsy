@@ -448,7 +448,7 @@ export const orbRegistry: OrbRegistryEntry[] = [
     slug: "orbsy-11",
     title: "ORBSY-11",
     description:
-      "Terminal. ASCII glyph matrix on the sphere with streaking rows and a full CRT.",
+      "Glyph Shells. Four nested spheres of ASCII glyphs turn on different axes inside the ball, and white-hot energy planes sweep through them on a CRT.",
     componentName: "Orbsy11",
     fileName: "orbsy-11.tsx",
     dependencies: []
@@ -457,7 +457,7 @@ export const orbRegistry: OrbRegistryEntry[] = [
     slug: "orbsy-12",
     title: "ORBSY-12",
     description:
-      "Dither Globe. A lit sphere rendered as ASCII density glyphs over an ordered dither.",
+      "Pixel Sort. Pixel-sorted runs drip down the longitude columns of a turning ball, with white-hot heads, stepped gradient tails, a dithered base and a light CRT.",
     componentName: "Orbsy12",
     fileName: "orbsy-12.tsx",
     dependencies: []
@@ -466,7 +466,7 @@ export const orbRegistry: OrbRegistryEntry[] = [
     slug: "orbsy-13",
     title: "ORBSY-13",
     description:
-      "Quadtree. A recursive grid on the sphere's cube faces, big tiles where energy runs high.",
+      "Menger Core. A raymarched Menger sponge turning inside a glass ball, with fluoro-lit edges on dark dithered faces and white-hot light leaking from a core through the holes.",
     componentName: "Orbsy13",
     fileName: "orbsy-13.tsx",
     dependencies: []
@@ -475,7 +475,7 @@ export const orbRegistry: OrbRegistryEntry[] = [
     slug: "orbsy-14",
     title: "ORBSY-14",
     description:
-      "Mondrian. Recursive Mondrian splits wrapped on the sphere, re-splitting over time.",
+      "Circuit. A circuit board wrapped on the ball at three recursive scales, with light pulses racing along chamfered traces into vias and pads that flash white.",
     componentName: "Orbsy14",
     fileName: "orbsy-14.tsx",
     dependencies: []
@@ -493,7 +493,7 @@ export const orbRegistry: OrbRegistryEntry[] = [
     slug: "orbsy-16",
     title: "ORBSY-16",
     description:
-      "Green Galaxy. A fluoro-green galaxy with a white-hot core and spilling arm gas.",
+      "Grid Tunnel. An endless corridor of recursively subdivided square frames zooming toward you, with pulses racing out of a white-hot vanishing point, dithered on a CRT.",
     componentName: "Orbsy16",
     fileName: "orbsy-16.tsx",
     dependencies: []
@@ -502,7 +502,7 @@ export const orbRegistry: OrbRegistryEntry[] = [
     slug: "orbsy-17",
     title: "ORBSY-17",
     description:
-      "Radar Topo. Green contours lit by a rotating radar sweep with phosphor persistence.",
+      "Slice Scan. Scan planes sweep through a voxel density field inside the glass ball, each cross-section a grid of glowing phosphor voxels with ghost slices fading behind.",
     componentName: "Orbsy17",
     fileName: "orbsy-17.tsx",
     dependencies: []
@@ -511,9 +511,36 @@ export const orbRegistry: OrbRegistryEntry[] = [
     slug: "orbsy-18",
     title: "ORBSY-18",
     description:
-      "Toxic Nebula. Green gas that quantizes into dithered blocks toward its escaping edge.",
+      "Toxic Nebula. A fluoro-green warped-gas nebula rendered entirely through a recursive quadtree of dithered, seamed blocks wrapped round the sphere: big blocks in calm or white-hot regions, fine ones along the cloud fronts, crumbling at the rim into escaping pixel blocks.",
     componentName: "Orbsy18",
     fileName: "orbsy-18.tsx",
+    dependencies: []
+  },
+  {
+    slug: "orbsy-19",
+    title: "ORBSY-19",
+    description:
+      "Energy Contours. A new take on Orbsy 04: topographic contours become glowing electric filaments, with pulses and crackle running along them, over stacked glass terraces lit by a luminous inner core.",
+    componentName: "Orbsy19",
+    fileName: "orbsy-19.tsx",
+    dependencies: []
+  },
+  {
+    slug: "orbsy-20",
+    title: "ORBSY-20",
+    description:
+      "Phosphor Green. SHDR-23's ASCII glyph matrix burning fluoro green on a light CRT, with bloom and white-hot glyph flares.",
+    componentName: "Orbsy20",
+    fileName: "orbsy-20.tsx",
+    dependencies: []
+  },
+  {
+    slug: "orbsy-21",
+    title: "ORBSY-21",
+    description:
+      "Mosaic Green. SHDR-29's LED tile wall lit fluoro green by flowing blobs, with glowing bevels, white-hot blob cores and mint/lime accent tiles.",
+    componentName: "Orbsy21",
+    fileName: "orbsy-21.tsx",
     dependencies: []
   }
 ];
