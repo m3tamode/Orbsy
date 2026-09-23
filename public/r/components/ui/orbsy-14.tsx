@@ -134,16 +134,23 @@ void main() {
   col *= mix((0.35 + 0.85 * lam) * mix(0.55, 1.0, s.z), 1.0, 0.3);
   float spec = pow(max(dot(reflect(-L, n), vec3(0.0, 0.0, 1.0)), 0.0), 24.0);
   col += vec3(0.7, 1.0, 0.75) * spec * 0.18;
+  // Limb light only off hot cells: a constant limb term, once the bloom
+  // lifts it, reads as a drawn ring around the ball.
   float limb = 1.0 - s.z;
-  col += uC_base * limb * limb * limb * 0.2;
+  float hotRim = smoothstep(0.45, 1.0, e);
+  col += uC_base * limb * limb * limb * 0.3 * hotRim;
   col *= orbsyScanline(gl_FragCoord.xy, 3.0, uP_scan);
 
-  // Past the rim: bleed tendrils in fluoro, with a screen-space flicker so
-  // nothing is constant along the radius.
+  /*
+    Past the rim: bleed tendrils in fluoro. orbBleed is at full strength right
+    at the rim for every angle, so on its own it draws a solid ring; a patch
+    field that varies in screen space breaks it into separate flares, hot
+    cells at the rim feed them, and the uniform halo is gone.
+  */
   float bl = orbBleed(uv, R, uP_reach, uP_edgeFlow) * uP_bleed * (0.7 + 0.6 * uOutput);
   float fl = 0.6 + 0.5 * noise3(vec3(uv * 5.0, uP_edgeFlow * 0.7));
-  float halo = exp(-max(r - R, 0.0) / (0.04 + 0.03 * uP_bloom)) * (1.0 - smoothstep(0.84, 1.0, r));
-  vec3 outer = uC_base * (bl * fl * 0.6 + halo * uP_bloom * 0.15);
+  float rimPatch = smoothstep(0.38, 0.72, orbEdgeFbm(vec3(uv * 3.2, uP_edgeFlow * 0.45)));
+  vec3 outer = uC_base * bl * fl * 0.6 * mix(0.12, 1.0, rimPatch) * (0.4 + 0.8 * hotRim) * (0.6 + 0.4 * uP_bloom);
   col = col * mask + outer * (1.0 - mask);
 
   col = orbsyBloomTone(col, uP_exposure);

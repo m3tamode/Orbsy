@@ -126,15 +126,22 @@ void main() {
   float eP = qtEnergy(nb, t);
   float glow = smoothstep(0.25, 1.2, eP) * uP_bloom;
   col += uC_base * glow * (0.18 + 0.3 * (1.0 - cov)) * (0.5 + 0.5 * lam);
+  // Limb light only where the field is hot at that point on the rim: a
+  // constant limb term reads as a drawn ring once the bloom lifts it.
   float limb = 1.0 - s.z;
-  col += uC_base * limb * limb * limb * 0.35 * (0.4 + glow);
+  col += uC_base * limb * limb * limb * 0.3 * glow * glow;
 
-  // Past the rim: bleed tendrils and a halo tinted by the field at the rim,
-  // which varies smoothly around the circle so nothing streaks into rays.
+  /*
+    Past the rim: bleed tendrils tinted by the field at the rim. orbBleed is
+    at full strength right at the rim for every angle (its tendrils only set
+    how far each wisp reaches), so on its own it draws a solid ring; a patch
+    field that varies in screen space breaks it into separate flares, and the
+    uniform halo that used to sit under it is gone for the same reason.
+  */
+  float rimPatch = smoothstep(0.38, 0.72, orbEdgeFbm(vec3(uv * 3.2, uP_edgeFlow * 0.45)));
   float bl = orbBleed(uv, R, uP_reach, uP_edgeFlow) * uP_bleed * (0.7 + 0.6 * uOutput);
-  float halo = exp(-max(r - R, 0.0) / (0.05 + 0.04 * uP_bloom)) * (1.0 - smoothstep(0.84, 1.0, r));
-  float heat = 0.35 + glow;
-  vec3 outer = uC_base * (bl * heat + halo * glow * 0.45);
+  float heat = 0.25 + glow;
+  vec3 outer = uC_base * bl * heat * mix(0.12, 1.0, rimPatch);
   col = col * mask + outer * (1.0 - mask);
 
   col = orbsyBloomTone(col, uP_exposure);
