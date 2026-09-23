@@ -1,5 +1,5 @@
 /*
- * Orbsy 13 — Quadtree. Original shader, MIT.
+ * Orbsy 13 — Menger Core. Original shader, MIT.
  * Not a "use client" module, so server components can read the variant as data.
  * The shader lives in a template literal: its comments must not contain backticks.
  */
@@ -7,141 +7,195 @@ import { ShaderOrb, type OrbVariant, type ShaderOrbProps } from "../core/orbkit-
 import { ORBSY_GLSL } from "./orbsy-glsl";
 
 /*
-  A recursive tile grid wrapped on the ball. Each cube face of the sphere
-  carries its own quadtree: at every pixel the cell is descended level by
-  level, and it stays whole once the energy sampled at its centre clears a
-  threshold that falls with depth. Hot regions (a precessing band plus
-  drifting noise blobs) therefore keep big bevelled tiles that burn to white,
-  while cool regions shatter into small dim ones, and as the field flows the
-  tiles merge and split live. The continuous field also paints a bloom haze in
-  the gaps and a halo past the organic rim.
+  A recursive grid in true 3D: a Menger sponge (a cube hollowed three times
+  over, the classic fold SDF) turning inside a glass ball. The sponge is a
+  little larger than the ball and intersected with it, so the silhouette is
+  the sphere and its surface is a spherical cut through the sponge, pierced
+  by square holes at three scales.
+
+  - SHADING: the outer faces are near black with a faint ordered dither. The
+    edges glow fluoro: every sponge face is axis aligned in the sponge's own
+    frame, so a normal taken at a wider epsilon (about a line width) leaves
+    the axes only near a crease, convex or concave. On the spherical cut the
+    edge is simply where the sponge distance is near zero.
+  - THE CORE: a white-hot light sits at the centre. Faces that look back at
+    it are lit, and the march integrates a volumetric glow around it, so
+    light leaks out only where a ray threads the holes toward the middle.
+  - SCAN: a plane sweeps through the sponge's own y axis, stepping layer by
+    layer on the level-3 grid, and every face and edge in the current slab
+    flares.
+  - GLASS: a crisp window-shaped specular and a faint fresnel, broken into
+    patches so it never draws a ring. Past the rim, bleed takes its colour
+    from the march at the rim, masked by a screen-space patch field.
 */
 const ORBSY13_FRAG =
   ORBSY_GLSL +
   `
-#define QT_LEVELS 5
+#define MG_STEPS 60
+#define MG_CAM 4.0
 
-// Inverse of orbsyCubeUV: face id and face xy back to a unit direction.
-vec3 qtCubeDir(float face, vec2 xy) {
-  vec3 d;
-  if (face < 0.5) d = vec3(1.0, xy.y, xy.x);
-  else if (face < 1.5) d = vec3(-1.0, xy.y, -xy.x);
-  else if (face < 2.5) d = vec3(xy.x, 1.0, xy.y);
-  else if (face < 3.5) d = vec3(xy.x, -1.0, -xy.y);
-  else if (face < 4.5) d = vec3(-xy.x, xy.y, 1.0);
-  else d = vec3(xy.x, xy.y, -1.0);
-  return normalize(d);
+mat3 mgRot;
+float mgScanY;
+float mgCore;
+
+float mgBox(vec3 p, float b) {
+  vec3 q = abs(p) - b;
+  return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0);
 }
 
-// Energy on the ball: a ribbon around a precessing great circle, plus two
-// octaves of drifting 3D noise. t is a clock, used only as a phase or as a
-// translation of the noise domain.
-float qtEnergy(vec3 d, float t) {
-  vec3 ax = normalize(vec3(0.6 * sin(t * 0.37), 1.0, 0.6 * cos(t * 0.29)));
-  float h = dot(d, ax) - 0.3 * sin(t * 0.53);
-  float band = exp(-h * h / 0.09);
-  float n = noise3(d * 1.7 + vec3(0.0, t * 0.35, t * 0.21)) * 0.67
-          + noise3(d * 3.9 + vec3(t * 0.27, 4.1, -t * 0.19)) * 0.33;
-  float blob = smoothstep(0.3, 0.85, n);
-  float e = max(band * uP_band, blob * uP_blob);
-  return e * (1.0 + uP_react * uOutput * 0.7);
+// Sponge of half-size 1 in its own frame.
+float mgSponge(vec3 p) {
+  float d = mgBox(p, 1.0);
+  float s = 1.0;
+  for (int m = 0; m < 3; m++) {
+    vec3 a = mod(p * s, 2.0) - 1.0;
+    s *= 3.0;
+    vec3 r = abs(1.0 - 3.0 * abs(a));
+    float da = max(r.x, r.y);
+    float db = max(r.y, r.z);
+    float dc = max(r.z, r.x);
+    float c = (min(da, min(db, dc)) - 1.0) / s;
+    d = max(d, c);
+  }
+  return d;
 }
 
-float qtBox(vec2 p, vec2 b, float r) {
-  vec2 q = abs(p) - b + r;
-  return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
+// World: ball of radius 1 intersected with the turning sponge.
+float mgMap(vec3 p) {
+  vec3 q = mgRot * p;
+  float S = uP_size;
+  return max(mgSponge(q / S) * S, length(p) - 1.0);
+}
+
+// Normal with a wider epsilon: on the sponge every face is axis aligned in
+// its own frame, so wherever this normal is not, the point is within reach of
+// a crease (convex or concave).
+vec3 mgNormalWide(vec3 p, float h) {
+  vec2 e = vec2(h, -h);
+  return normalize(
+    e.xyy * mgMap(p + e.xyy) + e.yyx * mgMap(p + e.yyx) +
+    e.yxy * mgMap(p + e.yxy) + e.xxx * mgMap(p + e.xxx));
+}
+
+// Core glow density at a point.
+float mgGlow(vec3 p) {
+  float r2 = dot(p, p);
+  return exp(-r2 * 10.0) * 2.4 + exp(-r2 * 3.0) * 0.08;
+}
+
+// March one screen position; returns energy (x), bloom energy (y), and
+// whether the ball was hit at all (z).
+vec3 mgScene(vec2 suv, float R, float px, vec2 fc) {
+  float focal = R * sqrt(MG_CAM * MG_CAM - 1.0);
+  vec3 ro = vec3(0.0, 0.0, MG_CAM);
+  vec3 rd = normalize(vec3(suv, -focal));
+  float b = dot(ro, rd);
+  float h = b * b - (dot(ro, ro) - 1.0);
+  if (h < 0.0) return vec3(0.0);
+  h = sqrt(h);
+  float t0 = -b - h;
+  float t1 = -b + h;
+  float t = t0;
+  float glow = 0.0;
+  float hit = 0.0;
+  for (int i = 0; i < MG_STEPS; i++) {
+    vec3 p = ro + rd * t;
+    float d = mgMap(p);
+    if (d < 0.0012) { hit = 1.0; break; }
+    float dt = max(d, 0.004);
+    glow += mgGlow(p) * dt;
+    t += dt;
+    if (t > t1) break;
+  }
+
+  vec3 p = ro + rd * t;
+  float E = 0.0;
+  float bloomE = glow * mgCore * 0.6;
+  // Volumetric leak from the core.
+  E += glow * mgCore;
+  if (hit > 0.5) {
+    vec3 q = mgRot * p;
+    float rr = length(p);
+    float dSp = mgSponge(q / uP_size) * uP_size;
+    float onBall = step(dSp, rr - 1.0);
+    float ew = uP_lineW * px * 1.4;
+    vec3 n;
+    float edge;
+    if (onBall > 0.5) {
+      // the spherical cut: edges are where the sponge's own surface meets it
+      n = p / max(rr, 1e-4);
+      edge = 1.0 - smoothstep(0.0, ew, abs(dSp));
+    } else {
+      n = mgNormalWide(p, ew);
+      vec3 nq = abs(mgRot * n);
+      edge = 1.0 - smoothstep(0.93, 0.995, max(nq.x, max(nq.y, nq.z)));
+    }
+    // light from the centre, falling off with distance
+    float toC = max(dot(n, -p / max(rr, 1e-3)), 0.0);
+    float lit = toC * mgCore * 1.3 / (1.0 + 10.0 * rr * rr);
+    // key light from upper left for a hint of form on the dark faces
+    float key = max(dot(n, normalize(vec3(-0.5, 0.6, 0.65))), 0.0);
+    // depth: faces deep inside the holes are further from the surface
+    float deep = smoothstep(0.95, 0.35, rr);
+    // scan slab on the sponge's own y, stepped on the level-3 grid
+    float cellY = (floor((q.y / uP_size + 1.0) * 13.5) + 0.5) / 13.5 - 1.0;
+    float dy = mgScanY - cellY;
+    float slab = exp(-dy * dy * 160.0);
+    // layers already swept keep a fading afterglow
+    float trail = dy > 0.0 ? exp(-dy * 3.5) * 0.45 : 0.0;
+    float scanE = (slab + trail) * uP_scan;
+
+    float face = uP_face * (0.015 + 0.08 * key) * (1.0 - 0.6 * deep);
+    // faint dither on the faces
+    float bay = orbsyBayer8(floor(fc * 0.5));
+    face = floor(face * 14.0 + bay) / 14.0 * 0.8 + face * 0.2;
+    float edgeE = edge * uP_edge * (0.55 + 0.9 * lit + 0.5 * deep) * (1.0 - 0.6 * deep * (1.0 - lit));
+    E += face + lit + edgeE + scanE * (0.18 + 1.6 * edge) + slab * uP_scan * 0.25;
+    bloomE += lit * 0.5 + edgeE * 0.25 + scanE * 0.3;
+  }
+  return vec3(E, bloomE, 1.0);
 }
 
 void main() {
   vec2 uv = orbUV();
   float px = orbsyPx();
-  float R = uP_radius * (1.0 + 0.03 * uP_react * uOutput);
+  vec2 fc = orbFragCoord(uv);
+  float R = uP_radius * (1.0 + 0.025 * uP_react * uOutput);
   float r = length(uv);
-  float t = uP_speed;
+
+  // Sponge orientation: a tilt that nods on a phase, then the spin clock.
+  mat2 ra = orbsyRot(uP_spin);
+  mat2 rb = orbsyRot(uP_tilt + 0.18 * sin(uP_spin * 0.61));
+  mat3 my = mat3(ra[0][0], 0.0, ra[0][1], 0.0, 1.0, 0.0, ra[1][0], 0.0, ra[1][1]);
+  mat3 mx = mat3(1.0, 0.0, 0.0, 0.0, rb[0][0], rb[0][1], 0.0, rb[1][0], rb[1][1]);
+  mgRot = my * mx;
+
+  // Scan plane position in sponge units, sweeping bottom to top.
+  mgScanY = fract(uP_scanRate * 0.23) * 2.4 - 1.2;
+  float beat = 0.5 + 0.5 * sin(uP_beat);
+  mgCore = uP_core * (1.0 + uP_pulse * beat) * (1.0 + uP_react * (1.6 * uOutput + 0.4 * uInput));
 
   float mask = orbOrganicMask(uv, R, uP_organic, uP_edgeSoft, uP_edgeFlow);
-  vec4 s = orbsySphere(orbRimUV(uv, R), R, px);
-  vec3 n = s.xyz;
+  vec2 suv = orbRimUV(uv, R);
+  vec3 S = mgScene(suv, R, px, fc);
 
-  // Ball space: a fixed tilt, then the spin clock as a rotation phase.
-  vec3 nb = n;
-  nb.yz = orbsyRot(0.42) * nb.yz;
-  nb.xz = orbsyRot(uP_spin) * nb.xz;
+  vec3 col = orbsyFluoro(S.x, uC_deep, uC_base, uC_hot);
+  col += uC_base * S.y * uP_bloom * 0.35;
 
-  vec3 c = orbsyCubeUV(nb);
-  float face = c.z;
-  vec2 q = c.xy * 0.5 + 0.5;
-
-  // Pixel footprint in face units: the cube map stretches by up to
-  // (1 + |xy|^2) and the sphere foreshortens by 1 / n.z toward the limb.
-  float fw = 0.5 * px / R * (1.0 + dot(c.xy, c.xy)) / max(s.z, 0.12);
-
-  // Quadtree descent.
-  float grid = floor(uP_grid + 0.5);
-  float size = 1.0 / grid;
-  vec2 cell = floor(q / size);
-  float eC = 0.0;
-  float lvl = 0.0;
-  for (int l = 0; l < QT_LEVELS; l++) {
-    float fl = float(l);
-    cell = floor(q / size);
-    vec2 ctr = (cell + 0.5) * size;
-    eC = qtEnergy(qtCubeDir(face, ctr * 2.0 - 1.0), t);
-    float jit = (hash31(vec3(cell, face + fl * 7.0)) - 0.5) * 0.12;
-    float th = (1.0 - fl * 0.2) * mix(1.25, 0.55, uP_split) + jit;
-    lvl = fl;
-    if (eC > th || l == QT_LEVELS - 1) break;
-    size *= 0.5;
-  }
-  float depth = lvl / float(QT_LEVELS - 1);
-
-  // Rounded, bevelled tile with a dark gap.
-  vec2 p = (q - (cell + 0.5) * size);
-  float gap = uP_gap * (0.004 + 0.035 * size);
-  vec2 hb = vec2(0.5 * size - gap);
-  float d = qtBox(p, hb, size * 0.16);
-  float cov = 1.0 - smoothstep(-fw, fw, d);
-  float bev = 1.0 - clamp(-d / (size * 0.14 + fw), 0.0, 1.0);
-  float lightSide = dot(normalize(p + 1e-6), vec2(-0.7071, 0.7071));
-  float pillow = 1.0 - 0.9 * dot(p, p) / (size * size);
-  float shape = pillow * (1.0 + bev * 0.55 * lightSide) * (1.0 - bev * 0.25);
-
-  // A few small tiles twinkle, re-rolled on a stepped clock.
-  float tw = step(0.965, hash31(vec3(cell * 1.7, face + floor(t * 4.0 + hash31(vec3(cell, face)) * 7.0))));
-  float eT = min(eC, 1.25) * mix(0.8, 0.45, depth) + 0.07 + tw * 0.35 * depth;
-  // The pillow also lifts the centre of hot tiles past 1, so they burn white
-  // in the middle and stay fluoro at the bevel.
-  float core = clamp(1.0 - 3.2 * dot(p, p) / (size * size), 0.0, 1.0);
-  vec3 tile = orbsyFluoro(eT * (0.85 + 0.45 * core), uC_deep, uC_base, uC_hot) * shape * cov;
-
-  // Sphere lighting: wrapped diffuse, limb darkening, and a sheen on tiles.
-  vec3 L = normalize(vec3(-0.45, 0.55, 0.7));
-  float lam = max(dot(n, L) * 0.7 + 0.3, 0.0);
-  float spec = pow(max(dot(reflect(-L, n), vec3(0.0, 0.0, 1.0)), 0.0), 20.0);
-  // Tiles are emissive, so the lighting only partly shades them.
-  vec3 col = tile * mix((0.35 + 0.85 * lam) * mix(0.55, 1.0, s.z), 1.0, 0.35);
-  col += vec3(0.75, 1.0, 0.8) * spec * cov * 0.35 * (0.3 + eT);
-
-  // Bloom: the continuous field glows through the gaps and over hot tiles.
-  float eP = qtEnergy(nb, t);
-  float glow = smoothstep(0.25, 1.2, eP) * uP_bloom;
-  col += uC_base * glow * (0.18 + 0.3 * (1.0 - cov)) * (0.5 + 0.5 * lam);
-  // Limb light only where the field is hot at that point on the rim: a
-  // constant limb term reads as a drawn ring once the bloom lifts it.
-  float limb = 1.0 - s.z;
-  col += uC_base * limb * limb * limb * 0.3 * glow * glow;
-
-  /*
-    Past the rim: bleed tendrils tinted by the field at the rim. orbBleed is
-    at full strength right at the rim for every angle (its tendrils only set
-    how far each wisp reaches), so on its own it draws a solid ring; a patch
-    field that varies in screen space breaks it into separate flares, and the
-    uniform halo that used to sit under it is gone for the same reason.
-  */
+  // Glass shell: a sharp window reflection and a patchy fresnel.
+  vec4 sp = orbsySphere(suv, R, px);
+  vec3 n = sp.xyz;
+  vec3 rf = reflect(vec3(0.0, 0.0, -1.0), n);
+  float win = smoothstep(0.1, 0.06, abs(rf.x + 0.42)) * smoothstep(0.1, 0.06, abs(rf.y - 0.5));
+  win *= step(0.012, abs(rf.x + 0.42)) * step(0.012, abs(rf.y - 0.5)) * 0.5 + 0.5;
   float rimPatch = smoothstep(0.38, 0.72, orbEdgeFbm(vec3(uv * 3.2, uP_edgeFlow * 0.45)));
+  float fres = pow(1.0 - sp.z, 4.0);
+  col += mix(uC_hot, vec3(1.0), 0.5) * win * uP_glass * 0.9;
+  col += uC_base * fres * uP_glass * 0.3 * mix(0.1, 1.0, rimPatch) * (0.3 + S.x);
+
+  // Past the rim: bleed coloured by the march at the rim, broken into patches.
   float bl = orbBleed(uv, R, uP_reach, uP_edgeFlow) * uP_bleed * (0.7 + 0.6 * uOutput);
-  float heat = 0.25 + glow;
-  vec3 outer = uC_base * bl * heat * mix(0.12, 1.0, rimPatch);
+  vec3 outer = uC_base * bl * smoothstep(0.25, 1.6, S.x + S.y * uP_bloom) * 0.8 * mix(0.08, 1.0, rimPatch);
   col = col * mask + outer * (1.0 - mask);
 
   col = orbsyBloomTone(col, uP_exposure);
@@ -151,22 +205,27 @@ void main() {
 
 export const orbsy13Orb: OrbVariant = {
   key: "orbsy-13",
-  label: "Quadtree",
-  note: "a recursive tile grid on the sphere's cube faces: big white-hot tiles along a flowing energy band, shattering into small dim ones as it falls off",
+  label: "Menger Core",
+  note: "a raymarched Menger sponge turning inside a glass ball, fluoro edges on dark dithered faces, white-hot light leaking from a core through the holes",
   frag: ORBSY13_FRAG,
   params: [
-    { key: "speed", label: "Energy flow", min: 0, max: 3, step: 0.01, default: 0.25, integrate: true },
-    { key: "spin", label: "Spin rate", min: 0, max: 2, step: 0.01, default: 0.08, integrate: true },
+    { key: "spin", label: "Turn rate", min: 0, max: 2, step: 0.01, default: 0.1, integrate: true },
+    { key: "scanRate", label: "Scan rate", min: 0, max: 4, step: 0.01, default: 0.3, integrate: true },
+    { key: "beat", label: "Core beat", min: 0, max: 12, step: 0.05, default: 1.0, integrate: true },
     { key: "radius", label: "Radius", min: 0.3, max: 1, step: 0.01, default: 0.79 },
-    { key: "grid", label: "Root tiles", min: 1, max: 4, step: 1, default: 2 },
-    { key: "split", label: "Shatter", min: 0, max: 1, step: 0.01, default: 0.45 },
-    { key: "band", label: "Band energy", min: 0, max: 2, step: 0.01, default: 1.15 },
-    { key: "blob", label: "Blob energy", min: 0, max: 2, step: 0.01, default: 0.75 },
-    { key: "gap", label: "Tile gap", min: 0, max: 3, step: 0.01, default: 1.0 },
+    { key: "size", label: "Sponge size", min: 0.8, max: 1.6, step: 0.01, default: 1.12 },
+    { key: "tilt", label: "Tilt", min: 0, max: 1.6, step: 0.01, default: 0.62 },
+    { key: "core", label: "Core light", min: 0, max: 4, step: 0.01, default: 1.0 },
+    { key: "pulse", label: "Beat depth", min: 0, max: 2, step: 0.01, default: 0.2 },
+    { key: "edge", label: "Edge glow", min: 0, max: 3, step: 0.01, default: 1.0 },
+    { key: "lineW", label: "Edge width", min: 0.5, max: 4, step: 0.05, default: 1.6 },
+    { key: "face", label: "Face fill", min: 0, max: 2, step: 0.01, default: 1.0 },
+    { key: "scan", label: "Scan plane", min: 0, max: 3, step: 0.01, default: 0 },
+    { key: "glass", label: "Glass", min: 0, max: 2, step: 0.01, default: 0.7 },
     { key: "bloom", label: "Bloom", min: 0, max: 2, step: 0.01, default: 0.8 },
-    { key: "exposure", label: "Exposure", min: 0.3, max: 3, step: 0.01, default: 1.2 },
+    { key: "exposure", label: "Exposure", min: 0.3, max: 3, step: 0.01, default: 1.1 },
     { key: "react", label: "Voice react", min: 0, max: 2, step: 0.01, default: 1.0 },
-    { key: "organic", label: "Rim wander", min: 0, max: 0.15, step: 0.005, default: 0.035 },
+    { key: "organic", label: "Rim wander", min: 0, max: 0.15, step: 0.005, default: 0.03 },
     { key: "edgeSoft", label: "Rim feather", min: 0, max: 0.2, step: 0.005, default: 0.03 },
     { key: "bleed", label: "Energy bleed", min: 0, max: 3, step: 0.01, default: 0.8 },
     { key: "reach", label: "Bleed reach", min: 0.02, max: 0.5, step: 0.005, default: 0.09 },
@@ -178,26 +237,26 @@ export const orbsy13Orb: OrbVariant = {
     { key: "hot", label: "Hot", default: "#d6ff5c" }
   ],
   statePresets: {
-    // one slow band of big tiles, the rest fine and dim
+    // slow turn, the core a dim ember deep in the holes, no scan
     idle: {
-      speed: 0.2, spin: 0.06, split: 0.4, band: 1.1, blob: 0.6, bloom: 0.7, exposure: 1.1,
-      react: 0.8, organic: 0.03, bleed: 0.7, reach: 0.08, edgeFlow: 0.25
+      spin: 0.08, scanRate: 0.3, beat: 0.8, core: 0.7, pulse: 0.15, edge: 0.9, face: 1.0, scan: 0,
+      glass: 0.6, bloom: 0.7, exposure: 1.05, react: 0.8, organic: 0.03, bleed: 0.6, reach: 0.08, edgeFlow: 0.25
     },
-    // busy: blobs race over the ball, tiles merge and shatter constantly
+    // faster turn, a scanning plane lighting the sponge layer by layer
     thinking: {
-      speed: 0.85, spin: 0.2, split: 0.72, band: 0.8, blob: 0.85, bloom: 0.75, exposure: 1.2,
-      react: 0.8, organic: 0.045, bleed: 0.9, reach: 0.1, edgeFlow: 0.7
+      spin: 0.3, scanRate: 1.6, beat: 2.0, core: 0.9, pulse: 0.2, edge: 1.2, face: 0.9, scan: 1.4,
+      glass: 0.7, bloom: 0.85, exposure: 1.15, react: 0.8, organic: 0.045, bleed: 0.9, reach: 0.1, edgeFlow: 0.7
     },
-    // brightest: big white tiles pulse with the voice, bloom spilling off the rim
+    // hot light pouring through the holes, pulsing with the voice
     speaking: {
-      speed: 0.55, spin: 0.1, split: 0.3, band: 1.4, blob: 0.95, bloom: 1.2, exposure: 1.45,
-      react: 1.4, organic: 0.065, bleed: 1.4, reach: 0.13, edgeFlow: 1.0
+      spin: 0.14, scanRate: 0.5, beat: 3.5, core: 2.0, pulse: 0.5, edge: 1.3, face: 1.0, scan: 0,
+      glass: 0.8, bloom: 1.3, exposure: 1.3, react: 1.4, organic: 0.065, bleed: 1.4, reach: 0.13, edgeFlow: 1.0
     }
   },
   stateColors: {
     idle: { deep: "#010d04", base: "#39ff14", hot: "#d6ff5c" },
-    thinking: { deep: "#01100a", base: "#2bff6a", hot: "#c8ffb0" },
-    speaking: { deep: "#030f02", base: "#5cff1f", hot: "#eaff7a" }
+    thinking: { deep: "#01100a", base: "#2bff6a", hot: "#c4ffd0" },
+    speaking: { deep: "#030f02", base: "#5cff1f", hot: "#eaff80" }
   }
 };
 

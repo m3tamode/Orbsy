@@ -956,7 +956,7 @@
     "name": "orbsy-11",
     "type": "registry:ui",
     "title": "ORBSY-11",
-    "description": "Terminal. ASCII glyph matrix on the sphere with streaking rows and a full CRT.",
+    "description": "Glyph Shells. Four nested spheres of ASCII glyphs turn on different axes inside the ball, and white-hot energy planes sweep through them on a CRT.",
     "dependencies": [],
     "registryDependencies": [],
     "files": [
@@ -982,7 +982,7 @@
     "name": "orbsy-12",
     "type": "registry:ui",
     "title": "ORBSY-12",
-    "description": "Dither Globe. A lit sphere rendered as ASCII density glyphs over an ordered dither.",
+    "description": "Pixel Sort. Pixel-sorted runs drip down the longitude columns of a turning ball, with white-hot heads, stepped gradient tails, a dithered base and a light CRT.",
     "dependencies": [],
     "registryDependencies": [],
     "files": [
@@ -1008,7 +1008,7 @@
     "name": "orbsy-13",
     "type": "registry:ui",
     "title": "ORBSY-13",
-    "description": "Quadtree. A recursive grid on the sphere's cube faces, big tiles where energy runs high.",
+    "description": "Menger Core. A raymarched Menger sponge turning inside a glass ball, with fluoro-lit edges on dark dithered faces and white-hot light leaking from a core through the holes.",
     "dependencies": [],
     "registryDependencies": [],
     "files": [
@@ -1034,7 +1034,7 @@
     "name": "orbsy-14",
     "type": "registry:ui",
     "title": "ORBSY-14",
-    "description": "Mondrian. Recursive Mondrian splits wrapped on the sphere, re-splitting over time.",
+    "description": "Circuit. A circuit board wrapped on the ball at three recursive scales, with light pulses racing along chamfered traces into vias and pads that flash white.",
     "dependencies": [],
     "registryDependencies": [],
     "files": [
@@ -1086,7 +1086,7 @@
     "name": "orbsy-16",
     "type": "registry:ui",
     "title": "ORBSY-16",
-    "description": "Green Galaxy. A fluoro-green galaxy with a white-hot core and spilling arm gas.",
+    "description": "Grid Tunnel. An endless corridor of recursively subdivided square frames zooming toward you, with pulses racing out of a white-hot vanishing point, dithered on a CRT.",
     "dependencies": [],
     "registryDependencies": [],
     "files": [
@@ -1112,7 +1112,7 @@
     "name": "orbsy-17",
     "type": "registry:ui",
     "title": "ORBSY-17",
-    "description": "Radar Topo. Green contours lit by a rotating radar sweep with phosphor persistence.",
+    "description": "Slice Scan. Scan planes sweep through a voxel density field inside the glass ball, each cross-section a grid of glowing phosphor voxels with ghost slices fading behind.",
     "dependencies": [],
     "registryDependencies": [],
     "files": [
@@ -1138,7 +1138,7 @@
     "name": "orbsy-18",
     "type": "registry:ui",
     "title": "ORBSY-18",
-    "description": "Toxic Nebula. Green gas that quantizes into dithered blocks toward its escaping edge.",
+    "description": "Toxic Nebula. A fluoro-green warped-gas nebula rendered entirely through a recursive quadtree of dithered, seamed blocks wrapped round the sphere: big blocks in calm or white-hot regions, fine ones along the cloud fronts, crumbling at the rim into escaping pixel blocks.",
     "dependencies": [],
     "registryDependencies": [],
     "files": [
@@ -1159,6 +1159,84 @@
       }
     ],
     "url": "/r/orbsy-18.json"
+  },
+  {
+    "name": "orbsy-19",
+    "type": "registry:ui",
+    "title": "ORBSY-19",
+    "description": "Energy Contours. A new take on Orbsy 04: topographic contours become glowing electric filaments, with pulses and crackle running along them, over stacked glass terraces lit by a luminous inner core.",
+    "dependencies": [],
+    "registryDependencies": [],
+    "files": [
+      {
+        "path": "public/r/components/ui/orbkit-core.tsx",
+        "type": "registry:ui",
+        "target": "components/ui/orbkit-core.tsx"
+      },
+      {
+        "path": "public/r/components/ui/orbsy-glsl.ts",
+        "type": "registry:ui",
+        "target": "components/ui/orbsy-glsl.ts"
+      },
+      {
+        "path": "public/r/components/ui/orbsy-19.tsx",
+        "type": "registry:ui",
+        "target": "components/ui/orbsy-19.tsx"
+      }
+    ],
+    "url": "/r/orbsy-19.json"
+  },
+  {
+    "name": "orbsy-20",
+    "type": "registry:ui",
+    "title": "ORBSY-20",
+    "description": "Phosphor Green. SHDR-23's ASCII glyph matrix burning fluoro green on a light CRT, with bloom and white-hot glyph flares.",
+    "dependencies": [],
+    "registryDependencies": [],
+    "files": [
+      {
+        "path": "public/r/components/ui/orbkit-core.tsx",
+        "type": "registry:ui",
+        "target": "components/ui/orbkit-core.tsx"
+      },
+      {
+        "path": "public/r/components/ui/orbsy-glsl.ts",
+        "type": "registry:ui",
+        "target": "components/ui/orbsy-glsl.ts"
+      },
+      {
+        "path": "public/r/components/ui/orbsy-20.tsx",
+        "type": "registry:ui",
+        "target": "components/ui/orbsy-20.tsx"
+      }
+    ],
+    "url": "/r/orbsy-20.json"
+  },
+  {
+    "name": "orbsy-21",
+    "type": "registry:ui",
+    "title": "ORBSY-21",
+    "description": "Mosaic Green. SHDR-29's LED tile wall lit fluoro green by flowing blobs, with glowing bevels, white-hot blob cores and mint/lime accent tiles.",
+    "dependencies": [],
+    "registryDependencies": [],
+    "files": [
+      {
+        "path": "public/r/components/ui/orbkit-core.tsx",
+        "type": "registry:ui",
+        "target": "components/ui/orbkit-core.tsx"
+      },
+      {
+        "path": "public/r/components/ui/orbsy-glsl.ts",
+        "type": "registry:ui",
+        "target": "components/ui/orbsy-glsl.ts"
+      },
+      {
+        "path": "public/r/components/ui/orbsy-21.tsx",
+        "type": "registry:ui",
+        "target": "components/ui/orbsy-21.tsx"
+      }
+    ],
+    "url": "/r/orbsy-21.json"
   },
   {
     "name": "all",
@@ -1432,6 +1510,21 @@
         "path": "public/r/components/ui/orbsy-18.tsx",
         "type": "registry:ui",
         "target": "components/ui/orbsy-18.tsx"
+      },
+      {
+        "path": "public/r/components/ui/orbsy-19.tsx",
+        "type": "registry:ui",
+        "target": "components/ui/orbsy-19.tsx"
+      },
+      {
+        "path": "public/r/components/ui/orbsy-20.tsx",
+        "type": "registry:ui",
+        "target": "components/ui/orbsy-20.tsx"
+      },
+      {
+        "path": "public/r/components/ui/orbsy-21.tsx",
+        "type": "registry:ui",
+        "target": "components/ui/orbsy-21.tsx"
       }
     ],
     "url": "/r/all.json"

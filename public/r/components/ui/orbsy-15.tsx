@@ -21,28 +21,42 @@ const ORBSY15_FRAG =
   ORBSY_GLSL +
   `
 // One layer of sliding blocks. g.x wraps in [0,1) (longitude), g.y in [0,1]
-// (latitude). ex / ey are one screen pixel in g units. Returns hard energy,
-// soft (bloom) energy and the bright edge.
-vec3 glitchLayer(vec2 g, float rows, float seed, float t, float ex, float ey, float dens) {
+// (latitude). ex / ey are one screen pixel in g units. sph is 1 when g is the
+// sphere (rows are latitude rings), 0 for flat screen-space use. Returns hard
+// energy, soft (bloom) energy and the bright edge.
+vec3 glitchLayer(vec2 g, float rows, float seed, float t, float ex, float ey, float dens, float sph) {
   float yy = g.y * rows;
   float row = floor(yy);
   float fy = fract(yy);
   float h1 = hash31(vec3(row, seed, 1.7));
   float h2 = hash31(vec3(row, seed, 2.9));
   float spd = (h1 < 0.5 ? -1.0 : 1.0) * mix(0.25, 1.0, h2);
-  float n = floor(mix(4.0, 11.0, hash31(vec3(row, seed, 3.3))));
+  /*
+    Even coverage. The tilt shows the north cap, where rows are short and both
+    sides of each ring are in view, so the top half always holds many small
+    blocks; the bottom half looks at the widest rings, which with a fixed 4 to
+    11 cells per ring held only a few huge blocks and read as sparse. Cells per
+    ring now follow the ring's circumference, and the rings the tilt only ever
+    shows in the lower half get a touch more density.
+  */
+  float rl = (row + 0.5) / rows;
+  float ring = cos((rl - 0.5) * PI);
+  float n = max(floor(mix(4.0, 11.0, hash31(vec3(row, seed, 3.3))) * (1.0 + 0.8 * sph * (ring - 0.6))), 3.0);
+  dens += (1.0 - dens) * 0.25 * sph * (1.0 - smoothstep(0.4, 0.62, rl));
   // t only ever enters as a wrapped translation along the row
   float x = fract(g.x + fract(t * spd * 0.08)) * n;
   float cell = floor(x);
   float fx = fract(x);
-  float epoch = floor(t * 0.35 + h2 * 9.0);
+  float epoch = floor(t * 0.35 + h2 * 9.0 + 40.0);
   vec3 cid = vec3(row * 13.0 + cell, seed * 7.0 + epoch, seed);
 
   float a = hash31(cid) * 0.45;
   float b = a + mix(0.3, 1.0 - a, hash31(cid + 11.0));
   float y0 = hash31(cid + 23.0) * 0.35;
   float y1 = 1.0 - hash31(cid + 31.0) * 0.35;
-  float on = step(hash31(cid + 41.0), dens);
+  // stratified along the ring: each row lights about dens of its cells, spread
+  // round it, so no ring goes dark by chance
+  float on = step(fract(hash31(vec3(row, cid.y, seed + 4.1)) + cell * 0.618034), dens);
   float hb = hash31(cid + 53.0);
   float bright = mix(0.2, 1.75, hb * hb);
 
@@ -78,8 +92,8 @@ vec3 glitchLayer(vec2 g, float rows, float seed, float t, float ex, float ey, fl
 }
 
 vec3 glitchField(vec2 g, float t, float ex, float ey) {
-  vec3 fine = glitchLayer(g, uP_rows, 1.0, t, ex, ey, uP_density);
-  vec3 coarse = glitchLayer(g, floor(uP_rows * 0.45), 2.0, t * 0.6, ex, ey, uP_density * 0.7);
+  vec3 fine = glitchLayer(g, uP_rows, 1.0, t, ex, ey, uP_density, 1.0);
+  vec3 coarse = glitchLayer(g, floor(uP_rows * 0.45), 2.0, t * 0.6, ex, ey, uP_density * 0.7, 1.0);
   return fine + coarse * vec3(0.7, 0.8, 0.8);
 }
 
@@ -142,7 +156,7 @@ void main() {
   // Escaping smears: screen-space block rows fade out along the bleed.
   float bl = orbBleed(uv, R, uP_reach, uP_edgeFlow) * uP_bleed * (0.7 + 0.6 * uOutput);
   vec2 sg = vec2(uv.x * 0.25 + 0.5, uv.y * 0.5 + 0.5);
-  vec3 O = glitchLayer(sg, 46.0, 5.0, t * 1.4, px * 0.25, px * 0.5, 0.55);
+  vec3 O = glitchLayer(sg, 46.0, 5.0, t * 1.4, px * 0.25, px * 0.5, 0.55, 0.0);
   float oe = O.x * mix(1.0, 0.55 + 0.7 * dots, uP_dither) + O.z;
   vec3 outer = orbsyFluoro(oe * 1.1, uC_deep, uC_base, uC_hot) + uC_base * O.y * uP_bloom * 0.3;
   float halo = exp(-max(r - R, 0.0) / 0.05) * uP_bloom * 0.18;
@@ -189,9 +203,9 @@ export const orbsy15Orb: OrbVariant = {
     { key: "hot", label: "Hot", default: "#d6ff5c" }
   ],
   statePresets: {
-    // slow drift, sparse blocks, barely any tearing
+    // slow drift, a steady scatter of blocks, barely any tearing
     idle: {
-      speed: 0.35, spin: 0.06, rows: 16, density: 0.5, bright: 1.0, glitch: 0.08, split: 2.0,
+      speed: 0.35, spin: 0.06, rows: 16, density: 0.66, bright: 1.0, glitch: 0.08, split: 2.0,
       dither: 0.7, bloom: 0.6, crt: 0.65, organic: 0.03, bleed: 0.8, reach: 0.09, edgeFlow: 0.25
     },
     // busy: fine rows racing and reseeding, heavy tears and channel split
