@@ -443,6 +443,78 @@ export const orbRegistry: OrbRegistryEntry[] = [
     componentName: "Orbsy10",
     fileName: "orbsy-10.tsx",
     dependencies: []
+  },
+  {
+    slug: "orbsy-11",
+    title: "ORBSY-11",
+    description:
+      "Terminal. ASCII glyph matrix on the sphere with streaking rows and a full CRT.",
+    componentName: "Orbsy11",
+    fileName: "orbsy-11.tsx",
+    dependencies: []
+  },
+  {
+    slug: "orbsy-12",
+    title: "ORBSY-12",
+    description:
+      "Dither Globe. A lit sphere rendered as ASCII density glyphs over an ordered dither.",
+    componentName: "Orbsy12",
+    fileName: "orbsy-12.tsx",
+    dependencies: []
+  },
+  {
+    slug: "orbsy-13",
+    title: "ORBSY-13",
+    description:
+      "Quadtree. A recursive grid on the sphere's cube faces, big tiles where energy runs high.",
+    componentName: "Orbsy13",
+    fileName: "orbsy-13.tsx",
+    dependencies: []
+  },
+  {
+    slug: "orbsy-14",
+    title: "ORBSY-14",
+    description:
+      "Mondrian. Recursive Mondrian splits wrapped on the sphere, re-splitting over time.",
+    componentName: "Orbsy14",
+    fileName: "orbsy-14.tsx",
+    dependencies: []
+  },
+  {
+    slug: "orbsy-15",
+    title: "ORBSY-15",
+    description:
+      "Glitch Blocks. Stretched rectangles sliding around the sphere, dithered, on a CRT.",
+    componentName: "Orbsy15",
+    fileName: "orbsy-15.tsx",
+    dependencies: []
+  },
+  {
+    slug: "orbsy-16",
+    title: "ORBSY-16",
+    description:
+      "Green Galaxy. A fluoro-green galaxy with a white-hot core and spilling arm gas.",
+    componentName: "Orbsy16",
+    fileName: "orbsy-16.tsx",
+    dependencies: []
+  },
+  {
+    slug: "orbsy-17",
+    title: "ORBSY-17",
+    description:
+      "Radar Topo. Green contours lit by a rotating radar sweep with phosphor persistence.",
+    componentName: "Orbsy17",
+    fileName: "orbsy-17.tsx",
+    dependencies: []
+  },
+  {
+    slug: "orbsy-18",
+    title: "ORBSY-18",
+    description:
+      "Toxic Nebula. Green gas that quantizes into dithered blocks toward its escaping edge.",
+    componentName: "Orbsy18",
+    fileName: "orbsy-18.tsx",
+    dependencies: []
   }
 ];
 

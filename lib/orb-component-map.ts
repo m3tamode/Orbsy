@@ -44,6 +44,14 @@ import { Orbsy07, orbsy07Orb } from "@/orbs/orbs/orbsy-07";
 import { Orbsy08, orbsy08Orb } from "@/orbs/orbs/orbsy-08";
 import { Orbsy09, orbsy09Orb } from "@/orbs/orbs/orbsy-09";
 import { Orbsy10, orbsy10Orb } from "@/orbs/orbs/orbsy-10";
+import { Orbsy11, orbsy11Orb } from "@/orbs/orbs/orbsy-11";
+import { Orbsy12, orbsy12Orb } from "@/orbs/orbs/orbsy-12";
+import { Orbsy13, orbsy13Orb } from "@/orbs/orbs/orbsy-13";
+import { Orbsy14, orbsy14Orb } from "@/orbs/orbs/orbsy-14";
+import { Orbsy15, orbsy15Orb } from "@/orbs/orbs/orbsy-15";
+import { Orbsy16, orbsy16Orb } from "@/orbs/orbs/orbsy-16";
+import { Orbsy17, orbsy17Orb } from "@/orbs/orbs/orbsy-17";
+import { Orbsy18, orbsy18Orb } from "@/orbs/orbs/orbsy-18";
 
 export type OrbComponent = ComponentType<Omit<ShaderOrbProps, "variant">>;
 
@@ -91,7 +99,15 @@ export const orbComponentMap: Record<string, OrbComponent> = {
   "orbsy-07": Orbsy07,
   "orbsy-08": Orbsy08,
   "orbsy-09": Orbsy09,
-  "orbsy-10": Orbsy10
+  "orbsy-10": Orbsy10,
+  "orbsy-11": Orbsy11,
+  "orbsy-12": Orbsy12,
+  "orbsy-13": Orbsy13,
+  "orbsy-14": Orbsy14,
+  "orbsy-15": Orbsy15,
+  "orbsy-16": Orbsy16,
+  "orbsy-17": Orbsy17,
+  "orbsy-18": Orbsy18
 };
 
 /**
@@ -142,5 +158,13 @@ export const orbVariantMap: Record<string, OrbVariant> = {
   "orbsy-07": orbsy07Orb,
   "orbsy-08": orbsy08Orb,
   "orbsy-09": orbsy09Orb,
-  "orbsy-10": orbsy10Orb
+  "orbsy-10": orbsy10Orb,
+  "orbsy-11": orbsy11Orb,
+  "orbsy-12": orbsy12Orb,
+  "orbsy-13": orbsy13Orb,
+  "orbsy-14": orbsy14Orb,
+  "orbsy-15": orbsy15Orb,
+  "orbsy-16": orbsy16Orb,
+  "orbsy-17": orbsy17Orb,
+  "orbsy-18": orbsy18Orb
 };
