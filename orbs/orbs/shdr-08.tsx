@@ -163,7 +163,9 @@ vec3 nacreRender(vec2 fragCoord) {
   col = pow(max(col, vec3(0.0)), vec3(uP_contrast));
 
   // dome shading keeps the ball a ball under the pattern
-  float lambert = clamp(dot(n, normalize(vec3(-0.45, 0.55, 0.72))), 0.0, 1.0);
+  // (n is unit on the dome; normalised so the flat plane past the rim,
+  // where the bleed samples, does not over-light)
+  float lambert = clamp(dot(normalize(n), normalize(vec3(-0.45, 0.55, 0.72))), 0.0, 1.0);
   col *= 0.35 + uP_light * lambert;
 
   // fresnel sheen: the wet gloss of a shell, and the thing that keeps the
@@ -202,32 +204,52 @@ void main() {
   nacreGain = uP_gain * (0.85 + 0.4 * uOutput);
 
   vec2 uv = orbUV();
-  float mask = smoothstep(0.012, -0.012, length(uv) - max(uP_radius, 0.001));
+  float R = max(uP_radius, 0.001);
 
-  // Nothing outside the silhouette is ever visible, so skip AA * AA warps
-  // for it rather than shading transparent sky.
-  if (mask <= 0.0) {
+  /*
+    Organic rim. The silhouette was a hard smoothstep on length(uv); it now
+    wanders and feathers. Past R the dome has flattened to z = 0 but the
+    stereographic map keeps going, so the same band field simply carries on
+    across the plane: the lumps and the bleed show the bands flowing off the
+    shell in both directions, not a rim colour smeared into radial rays.
+  */
+  float mask = orbOrganicMask(uv, R, uP_organic, uP_edgeSoft, uP_edgeFlow);
+  float bleed = orbBleed(uv, R, uP_reach, uP_edgeFlow) * uP_bleed * (0.7 + 0.6 * uOutput) * (1.0 - mask);
+
+  // Nothing outside the silhouette or the bleed is ever visible, so skip
+  // AA * AA warps for it rather than shading transparent sky.
+  if (mask <= 0.0 && bleed < 0.002) {
     gl_FragColor = vec4(0.0);
     return;
   }
 
   vec3 col = vec3(0.0);
+  if (mask <= 0.0) {
+    // bleed only: a dim glow, one sample is plenty
+    col = nacreRender(gl_FragCoord.xy);
+  } else {
 #if AA > 1
-  for (int mx = 0; mx < AA; mx++) {
-    for (int my = 0; my < AA; my++) {
-      vec2 off = (vec2(float(mx), float(my)) + 0.5) / float(AA) - 0.5;
-      col += nacreRender(gl_FragCoord.xy + off);
+    for (int mx = 0; mx < AA; mx++) {
+      for (int my = 0; my < AA; my++) {
+        vec2 off = (vec2(float(mx), float(my)) + 0.5) / float(AA) - 0.5;
+        col += nacreRender(gl_FragCoord.xy + off);
+      }
     }
-  }
-  col /= float(AA * AA);
+    col /= float(AA * AA);
 #else
-  col = nacreRender(gl_FragCoord.xy);
+    col = nacreRender(gl_FragCoord.xy);
 #endif
+  }
+  col = max(col, vec3(0.0));
+
+  // energy creeping off the shell, in the colour of the bands under it
+  vec3 glow = col * bleed * 0.6;
+  float glowA = clamp(max(glow.r, max(glow.g, glow.b)), 0.0, 1.0);
 
   // Surface orb bounded by a mask: alpha IS coverage, so premultiply — the
-  // opposite convention from the emissive orbs (see shdr-31).
-  float a = mask;
-  gl_FragColor = vec4(max(col, vec3(0.0)) * a, a);
+  // opposite convention from the emissive orbs (see shdr-31). The bleed is
+  // light, added on top with its own peak as alpha.
+  gl_FragColor = vec4(col * mask + glow, max(mask, glowA));
 }
 `;
 
@@ -240,7 +262,7 @@ export const shdr08Orb: OrbVariant = {
     { key: "speed", label: "Boil", min: 0.015, max: 10, step: 0.05, default: 0.35, integrate: true },
     { key: "flow", label: "Band drift", min: 0, max: 5, step: 0.03, default: 0.25, integrate: true },
     { key: "swirl", label: "Swirl", min: 0, max: 3, step: 0.015, default: 0.06, integrate: true },
-    { key: "radius", label: "Radius", min: 0.15, max: 3, step: 0.015, default: 0.9 },
+    { key: "radius", label: "Radius", min: 0.15, max: 3, step: 0.015, default: 0.78 },
     { key: "scale", label: "Pattern scale", min: 0.3, max: 20, step: 0.1, default: 5.5 },
     { key: "bulge", label: "Dome bulge", min: 0, max: 4, step: 0.02, default: 0.3 },
     { key: "warp", label: "Warp", min: 0, max: 3, step: 0.02, default: 1 },
@@ -254,7 +276,12 @@ export const shdr08Orb: OrbVariant = {
     { key: "gain", label: "Brightness", min: 0.05, max: 5, step: 0.05, default: 1.1 },
     { key: "contrast", label: "Contrast", min: 0.15, max: 10, step: 0.05, default: 1.15 },
     { key: "light", label: "Key light", min: 0, max: 3, step: 0.015, default: 0.75 },
-    { key: "rim", label: "Rim sheen", min: 0, max: 3, step: 0.015, default: 0.5 }
+    { key: "rim", label: "Rim sheen", min: 0, max: 3, step: 0.015, default: 0.5 },
+    { key: "organic", label: "Rim wander", min: 0, max: 0.15, step: 0.005, default: 0.04 },
+    { key: "edgeSoft", label: "Rim feather", min: 0, max: 0.2, step: 0.005, default: 0.035 },
+    { key: "bleed", label: "Energy bleed", min: 0, max: 3, step: 0.01, default: 0.9 },
+    { key: "reach", label: "Bleed reach", min: 0.02, max: 0.5, step: 0.005, default: 0.1 },
+    { key: "edgeFlow", label: "Edge flow", min: 0, max: 3, step: 0.01, default: 0.35, integrate: true }
   ],
   /*
    * Four stops: the shell body the bands sit on, the two ends of the band
@@ -319,7 +346,11 @@ export const shdr08Orb: OrbVariant = {
       floor: 0.57,
       gain: 2.45,
       contrast: 1.65,
-      rim: 0.495
+      rim: 0.495,
+      organic: 0.03,
+      bleed: 0.7,
+      reach: 0.08,
+      edgeFlow: 0.3
     },
     /*
       searching: the field CHURNS in place — boil at over four times resting,
@@ -346,7 +377,11 @@ export const shdr08Orb: OrbVariant = {
       floor: 0.77,
       gain: 0.85,
       contrast: 1.65,
-      rim: 0.495
+      rim: 0.495,
+      organic: 0.045,
+      bleed: 0.85,
+      reach: 0.1,
+      edgeFlow: 0.8
     },
     /*
       answering: the field SWELLS and TRAVELS. Warp is on the beat at full
@@ -372,7 +407,11 @@ export const shdr08Orb: OrbVariant = {
       split: 0.3,
       iris: 0.45,
       gain: 1.75,
-      contrast: 0.78
+      contrast: 0.78,
+      organic: 0.06,
+      bleed: 1.3,
+      reach: 0.13,
+      edgeFlow: 1.1
     }
   },
   // abalone at rest, cold pearl while searching, warm fire-opal while
