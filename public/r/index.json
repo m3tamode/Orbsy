@@ -1239,6 +1239,58 @@
     "url": "/r/orbsy-21.json"
   },
   {
+    "name": "orbsy-22",
+    "type": "registry:ui",
+    "title": "ORBSY-22",
+    "description": "Prism Glass. An emerald glass sphere that splits light into four greens (emerald, brand green, aqua and mint) across smoky silk folds, burning white where the bands meet and glowing unevenly along the curved rim.",
+    "dependencies": [],
+    "registryDependencies": [],
+    "files": [
+      {
+        "path": "public/r/components/ui/orbkit-core.tsx",
+        "type": "registry:ui",
+        "target": "components/ui/orbkit-core.tsx"
+      },
+      {
+        "path": "public/r/components/ui/orbsy-glsl.ts",
+        "type": "registry:ui",
+        "target": "components/ui/orbsy-glsl.ts"
+      },
+      {
+        "path": "public/r/components/ui/orbsy-22.tsx",
+        "type": "registry:ui",
+        "target": "components/ui/orbsy-22.tsx"
+      }
+    ],
+    "url": "/r/orbsy-22.json"
+  },
+  {
+    "name": "orbsy-23",
+    "type": "registry:ui",
+    "title": "ORBSY-23",
+    "description": "Lens Lattice. An emerald glass ball faceted into a honeycomb of convex lenses, each bending its own piece of a field of travelling bands, so white-hot cores with emerald and aqua shoulders crowd toward the walls and break from lens to lens.",
+    "dependencies": [],
+    "registryDependencies": [],
+    "files": [
+      {
+        "path": "public/r/components/ui/orbkit-core.tsx",
+        "type": "registry:ui",
+        "target": "components/ui/orbkit-core.tsx"
+      },
+      {
+        "path": "public/r/components/ui/orbsy-glsl.ts",
+        "type": "registry:ui",
+        "target": "components/ui/orbsy-glsl.ts"
+      },
+      {
+        "path": "public/r/components/ui/orbsy-23.tsx",
+        "type": "registry:ui",
+        "target": "components/ui/orbsy-23.tsx"
+      }
+    ],
+    "url": "/r/orbsy-23.json"
+  },
+  {
     "name": "all",
     "type": "registry:ui",
     "title": "All Orbsy Orbs",
@@ -1525,6 +1577,16 @@
         "path": "public/r/components/ui/orbsy-21.tsx",
         "type": "registry:ui",
         "target": "components/ui/orbsy-21.tsx"
+      },
+      {
+        "path": "public/r/components/ui/orbsy-22.tsx",
+        "type": "registry:ui",
+        "target": "components/ui/orbsy-22.tsx"
+      },
+      {
+        "path": "public/r/components/ui/orbsy-23.tsx",
+        "type": "registry:ui",
+        "target": "components/ui/orbsy-23.tsx"
       }
     ],
     "url": "/r/all.json"

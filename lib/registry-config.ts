@@ -542,6 +542,24 @@ export const orbRegistry: OrbRegistryEntry[] = [
     componentName: "Orbsy21",
     fileName: "orbsy-21.tsx",
     dependencies: []
+  },
+  {
+    slug: "orbsy-22",
+    title: "ORBSY-22",
+    description:
+      "Prism Glass. An emerald glass sphere that splits light into four greens (emerald, brand green, aqua and mint) across smoky silk folds, burning white where the bands meet and glowing unevenly along the curved rim.",
+    componentName: "Orbsy22",
+    fileName: "orbsy-22.tsx",
+    dependencies: []
+  },
+  {
+    slug: "orbsy-23",
+    title: "ORBSY-23",
+    description:
+      "Lens Lattice. An emerald glass ball faceted into a honeycomb of convex lenses, each bending its own piece of a field of travelling bands, so white-hot cores with emerald and aqua shoulders crowd toward the walls and break from lens to lens.",
+    componentName: "Orbsy23",
+    fileName: "orbsy-23.tsx",
+    dependencies: []
   }
 ];
 
